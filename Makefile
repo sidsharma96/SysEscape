@@ -110,17 +110,19 @@ dev-logs: ## Tail logs from all infra services
 	$(DOCKER_COMPOSE) logs -f
 
 # ── Migrations ─────────────────────────────────────────────────────────────
+MIGRATE := $(GO) run ./cmd/migrate
+
 migrate-up: ## Apply all pending Postgres migrations
-	@echo "Migration tooling not yet configured"
+	$(MIGRATE) up
 
 migrate-down: ## Roll back the last migration
-	@echo "Migration tooling not yet configured"
+	$(MIGRATE) down 1
 
 migrate-create: ## Create a new migration (usage: make migrate-create NAME=add_foo)
 ifndef NAME
 	$(error NAME is required. Usage: make migrate-create NAME=add_submissions_table)
 endif
-	@echo "Migration tooling not yet configured"
+	$(MIGRATE) create $(NAME)
 
 # ── Run Services (local dev) ───────────────────────────────────────────────
 run-graphql: ## Run GraphQL BFF on :8080

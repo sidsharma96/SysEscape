@@ -4,7 +4,7 @@
 
 | Tool | Version | Install |
 |------|---------|---------|
-| Go | 1.22+ | [go.dev/dl](https://go.dev/dl/) |
+| Go | 1.24+ | [go.dev/dl](https://go.dev/dl/) |
 | Docker + Docker Compose | 24+ / v2 | [docs.docker.com](https://docs.docker.com/get-docker/) |
 | Node.js + pnpm | 20+ / 9+ | [nodejs.org](https://nodejs.org/), `corepack enable && corepack prepare pnpm@latest --activate` |
 | kubectl | 1.28+ | For k8s interaction (optional for local dev) |
