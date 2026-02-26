@@ -1,0 +1,68 @@
+name: PR Gate
+
+on:
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: Lint · Test · Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          cache: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 8
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/pnpm/store/v3
+          key: pnpm-${{ runner.os }}-${{ hashFiles('web/pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-${{ runner.os }}-
+
+      - name: Install UI dependencies
+        run: make ui-install
+
+      # ── Backend ──────────────────────────────────────────────
+      - name: Backend lint
+        run: make lint
+
+      - name: Backend unit tests
+        run: make test-unit
+
+      - name: Backend build
+        run: make build
+
+      # ── Frontend ─────────────────────────────────────────────
+      - name: Frontend lint
+        run: make ui-lint
+
+      - name: Frontend tests
+        run: make ui-test
+
+      - name: Frontend build
+        run: make ui-build
+
+      # TODO(M1): add integration tests with service containers
