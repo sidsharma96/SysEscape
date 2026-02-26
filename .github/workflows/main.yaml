@@ -1,0 +1,93 @@
+name: Main Gate
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: main-${{ github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: Lint · Test · Build · Integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          cache: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 8
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/pnpm/store/v3
+          key: pnpm-${{ runner.os }}-${{ hashFiles('web/pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-${{ runner.os }}-
+
+      - name: Install UI dependencies
+        run: make ui-install
+
+      # ── Backend ──────────────────────────────────────────────
+      - name: Backend lint
+        run: make lint
+
+      - name: Backend unit tests
+        run: make test-unit
+
+      - name: Backend build
+        run: make build
+
+      # ── Frontend ─────────────────────────────────────────────
+      - name: Frontend lint
+        run: make ui-lint
+
+      - name: Frontend tests
+        run: make ui-test
+
+      - name: Frontend build
+        run: make ui-build
+
+      # ── Integration tests (requires infra services) ──────────
+      - name: Start infrastructure services
+        run: docker compose -f infra/docker-compose.yaml up -d --wait
+        timeout-minutes: 3
+
+      - name: Apply database migrations
+        run: make migrate-up
+        env:
+          DATABASE_URL: postgres://ser:ser@localhost:5432/ser?sslmode=disable
+
+      - name: Integration tests
+        run: make test-integration
+        env:
+          DATABASE_URL: postgres://ser:ser@localhost:5432/ser?sslmode=disable
+          KAFKA_BROKERS: localhost:9092
+          REDIS_URL: redis://localhost:6379
+          S3_ENDPOINT: http://localhost:9000
+          S3_BUCKET: ser-bundles
+          S3_ACCESS_KEY: minioadmin
+          S3_SECRET_KEY: minioadmin
+
+      - name: Stop infrastructure services
+        if: always()
+        run: docker compose -f infra/docker-compose.yaml down
+
+      # TODO(M3): add image build + push to GHCR
