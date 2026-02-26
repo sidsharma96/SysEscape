@@ -1,6 +1,6 @@
 # Agent Guidance: Web UI (`web/`)
 
-> **Stack:** Next.js 14+ (App Router) · React 18+ · TypeScript · Tailwind CSS
+> **Stack:** Vite · React 18+ · React Router · TypeScript · Tailwind CSS
 > **Role:** Room browser, Engine A panels, Engine B workspace terminal, run explorer, auth flow.
 > **This file is a living document.** Update it when an agent makes a UI-related mistake.
 
@@ -9,25 +9,17 @@
 ```
 web/
 ├── src/
-│   ├── app/                        # Next.js App Router pages
-│   │   ├── layout.tsx              # Root layout (auth provider, theme, nav shell)
-│   │   ├── page.tsx                # Landing / room catalog
-│   │   ├── login/                  # GitHub OAuth callback
-│   │   ├── rooms/
-│   │   │   └── [slug]/
-│   │   │       └── page.tsx        # Room detail + "Start Run" CTA
-│   │   ├── play/
-│   │   │   └── [runId]/
-│   │   │       ├── page.tsx        # Run router: redirects to engine-a or engine-b
-│   │   │       ├── engine-a/
-│   │   │       │   └── page.tsx    # Engine A gameplay (panels + topology + actions)
-│   │   │       └── engine-b/
-│   │   │           └── page.tsx    # Engine B gameplay (terminal + submit + results)
-│   │   ├── runs/
-│   │   │   └── page.tsx            # Run history / progress dashboard
-│   │   └── admin/
-│   │       └── publish/
-│   │           └── page.tsx        # Room publishing (ADMIN only)
+│   ├── main.tsx                    # Vite entrypoint (renders <App />)
+│   ├── App.tsx                     # React Router setup + providers (auth, theme)
+│   ├── routes/                     # Route components (one file per page)
+│   │   ├── Layout.tsx              # Root layout (nav shell, theme, auth guard wrapper)
+│   │   ├── CatalogPage.tsx         # Landing / room catalog
+│   │   ├── RoomDetailPage.tsx      # Room detail + "Start Run" CTA
+│   │   ├── LoginCallbackPage.tsx   # GitHub OAuth callback
+│   │   ├── EngineAPage.tsx         # Engine A gameplay (panels + topology + actions)
+│   │   ├── EngineBPage.tsx         # Engine B gameplay (terminal + submit + results)
+│   │   ├── RunsPage.tsx            # Run history / progress dashboard
+│   │   └── AdminPublishPage.tsx    # Room publishing (ADMIN only)
 │   │
 │   ├── components/
 │   │   ├── ui/                     # Generic primitives (Button, Card, Modal, Toast, etc.)
@@ -47,7 +39,7 @@ web/
 │   │
 │   ├── lib/
 │   │   ├── graphql/                # GraphQL client, queries, mutations, types
-│   │   │   ├── client.ts           # urql or Apollo client config
+│   │   │   ├── client.ts           # urql client config
 │   │   │   ├── queries.ts          # Catalog, runs, progress queries
 │   │   │   ├── mutations.ts        # startRun, submitProof, submitToJudge, publish
 │   │   │   └── types.ts            # Generated types (from GraphQL schema)
@@ -62,7 +54,8 @@ web/
 │   └── __tests__/                  # Test files (mirroring src/ structure)
 │
 ├── public/                         # Static assets
-├── next.config.ts
+├── index.html                      # Vite HTML entrypoint
+├── vite.config.ts                  # Vite config (proxy for /graphql and /ws in dev)
 ├── tailwind.config.ts
 ├── tsconfig.json
 ├── vitest.config.ts                # Test config (Vitest + React Testing Library)
@@ -82,7 +75,7 @@ The UI has five distinct surfaces. Each has different data patterns and state co
 | State | Server-fetched; minimal client state (filters, search) |
 | Auth | Public for browsing; auth required for "Start Run" |
 | Key components | `RoomCard`, `RoomGrid`, `DifficultyBadge`, `DistrictFilter` |
-| Agent notes | Use Next.js Server Components for catalog pages. SSR/ISR is appropriate here. |
+| Agent notes | Fetches room list on mount via GraphQL. Consider caching with urql's document cache. Simple data-in → render-out. |
 
 ### 2. Engine A Gameplay (`/play/[runId]/engine-a`)
 
@@ -112,7 +105,7 @@ The UI has five distinct surfaces. Each has different data patterns and state co
 | State | Server-fetched; optional trace/log drill-down |
 | Auth | Authenticated (user sees only own runs) |
 | Key components | `RunList`, `RunDetail`, `AtlasCard`, `TraceViewer` (links to Grafana) |
-| Agent notes | Simple CRUD views. Good candidate for Server Components + streaming. |
+| Agent notes | Simple CRUD views. Fetch on mount, minimal client state. Good candidate for route-level data loading. |
 
 ### 5. Admin: Room Publishing (`/admin/publish`)
 
@@ -280,20 +273,20 @@ theme: {
 # From repo root
 make ui-test          # Vitest (unit + component tests)
 make ui-lint          # ESLint + TypeScript check
-make ui-build         # Next.js production build
-make ui-dev           # Next.js dev server on :3000
+make ui-build         # Vite production build
+make ui-dev           # Vite dev server on :3000
 ```
 
 ### What NOT to test
 - Don't test Tailwind class names (they change with design iteration).
-- Don't test Next.js internal routing (framework's job).
+- Don't test React Router navigation (framework's job).
 - Don't snapshot-test entire pages (too brittle with agents generating code).
 
 ## Do / Don't
 
 ### Do:
-- Use Server Components for catalog/progress pages (data-fetching at the server).
-- Use Client Components (`"use client"`) for Engine A/B gameplay (WS + complex state).
+- Use React Router's lazy loading (`React.lazy`) for gameplay pages (Engine A/B are heavy; don't load them for catalog visitors).
+- Keep route components thin — they compose hooks + layout components, no business logic.
 - Keep WS logic in `hooks/use-ws.ts` — components consume state, not raw sockets.
 - Generate GraphQL types from the backend schema (codegen). Don't hand-write them.
 - Use `clientRequestId` on every mutation. Generate UUID once per user action.
@@ -303,25 +296,26 @@ make ui-dev           # Next.js dev server on :3000
 
 ### Don't:
 - Don't use `localStorage` or `sessionStorage` for tokens. Keep `runToken` in React state / in-memory only. Session cookie handles auth.
-- Don't make WS connections from Server Components. WS is client-side only.
+- Put business logic in route components. Routes compose hooks + components — no raw fetch/WS logic.
 - Don't poll GraphQL for real-time data. Use WS for Engine A/B; GraphQL is for request/response only.
 - Don't put business logic in page components. Pages compose hooks + components — no raw fetch/WS logic.
 - Don't import from `internal/` (Go backend). The frontend communicates only via GraphQL and WS.
-- Don't hardcode WS URLs. Read from environment variable (`NEXT_PUBLIC_WS_HOST`).
+- Don't hardcode WS URLs. Read from environment variable (`VITE_WS_HOST`).
 - Don't use `any` in TypeScript. If the type is complex, define it in `lib/ws/protocol.ts` or `lib/graphql/types.ts`.
 
 ## Common Mistakes (update after every agent failure)
 
 <!-- Add entries as agents make mistakes. Format: what went wrong → fix. -->
 
-1. _[Template]_ Agent created WS connection in a Server Component → Move to Client Component with `"use client"` directive. WS is browser-only.
+1. _[Template]_ Agent put WS connection setup in a component body instead of a hook → Move to `hooks/use-ws.ts`. Components consume state, not raw sockets.
 
 ## Dependencies (recommended)
 
 | Package | Purpose | Notes |
 |---------|---------|-------|
-| `next` | Framework | App Router, SSR/SSG |
-| `react`, `react-dom` | UI library | 18+ for Server Components |
+| `vite` | Build tool + dev server | Near-instant HMR, fast builds |
+| `react`, `react-dom` | UI library | 18+ |
+| `react-router-dom` | Client-side routing | v6+, lazy loading for code splitting |
 | `typescript` | Type safety | Strict mode enabled |
 | `tailwindcss` | Styling | Dark theme with custom tokens |
 | `urql` or `@apollo/client` | GraphQL client | urql preferred (lighter) |

@@ -120,10 +120,10 @@ LOG_FORMAT=text
 | Target | What it does | When to use |
 |--------|-------------|-------------|
 | `make ui-install` | `pnpm install` in `web/` | After clone or dependency changes |
-| `make ui-dev` | Start Next.js dev server on `:3000` | Local UI development |
+| `make ui-dev` | Start Vite dev server on `:3000` | Local UI development |
 | `make ui-lint` | ESLint + TypeScript type-check | Catches type errors + style violations |
 | `make ui-test` | Vitest unit + component tests | Before every PR touching `web/` |
-| `make ui-build` | Next.js production build | Verifies build; runs in CI |
+| `make ui-build` | Vite production build | Verifies build; runs in CI |
 | `make ui-codegen` | Generate TS types from GraphQL schema | After any GraphQL schema change |
 | `make ui-fmt` | Prettier + ESLint auto-fix | Auto-fix formatting |
 
@@ -133,7 +133,7 @@ The web UI lives in `web/` and is a separate pnpm workspace (not part of `go.mod
 
 ```bash
 # Start the UI dev server (proxies API to backend on :8080)
-make ui-dev        # Next.js dev server on http://localhost:3000
+make ui-dev        # Vite dev server on http://localhost:3000
 
 # Run the full backend alongside it (separate terminal)
 make run-all       # All Go services
@@ -153,13 +153,13 @@ make ui-codegen
 
 ### Environment Variables (UI)
 
-UI env vars use the `NEXT_PUBLIC_` prefix for client-side values:
+UI env vars use the `VITE_` prefix for client-side values:
 
 ```bash
 # web/.env.local (local dev only, not committed)
-NEXT_PUBLIC_GRAPHQL_URL=http://localhost:8080/graphql
-NEXT_PUBLIC_WS_HOST=localhost:8081
-NEXT_PUBLIC_SITE_URL=http://localhost:3000
+VITE_GRAPHQL_URL=http://localhost:8080/graphql
+VITE_WS_HOST=localhost:8081
+VITE_SITE_URL=http://localhost:3000
 ```
 
 ## Database Migrations
@@ -207,7 +207,7 @@ Run `make ui-install` first. If still failing, delete `web/node_modules` and ret
 The GraphQL schema file doesn't exist yet or the backend isn't serving the introspection endpoint. Ensure `make run-graphql` is running, or provide the schema file at `web/schema.graphql`.
 
 ### WS connection fails in dev with CORS error
-The Next.js dev server (:3000) is trying to connect to the WS server (:8081) cross-origin. Either configure the Next.js `rewrites` in `next.config.ts` to proxy `/ws/` paths, or set the CORS allow-origin header on the Go WS handler for local dev.
+The Vite dev server (:3000) is trying to connect to the WS server (:8081) cross-origin. Configure Vite's `server.proxy` in `vite.config.ts` to proxy `/ws/` paths to the backend, or set the CORS allow-origin header on the Go WS handler for local dev.
 
 ### TypeScript errors after pulling new changes
 Run `make ui-codegen` to regenerate types from the latest GraphQL schema, then `make ui-lint` to verify.

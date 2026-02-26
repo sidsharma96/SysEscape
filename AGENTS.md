@@ -15,10 +15,10 @@
 | `make fmt` | gofumpt + goimports (auto-format) |
 | `make migrate-up` | Apply pending Postgres migrations |
 | `make roomctl-validate` | Validate room content (schema + leak check) |
-| `make ui-dev` | Start Next.js dev server on :3000 |
+| `make ui-dev` | Start Vite dev server on :3000 |
 | `make ui-lint` | ESLint + TypeScript type-check for `web/` |
 | `make ui-test` | Vitest unit + component tests |
-| `make ui-build` | Next.js production build |
+| `make ui-build` | Vite production build |
 | `make ui-codegen` | Generate TypeScript types from GraphQL schema |
 
 ## Project Structure
@@ -59,14 +59,15 @@ systems-escape-rooms/
 │   ├── docker-compose.yaml
 │   ├── k8s/
 │   └── scripts/
-├── web/                    # Next.js web UI (TypeScript / React)
+├── web/                    # Vite + React SPA (TypeScript)
 │   ├── src/
-│   │   ├── app/            # App Router pages (catalog, play, runs, admin)
+│   │   ├── routes/         # Route components (CatalogPage, EngineAPage, etc.)
 │   │   ├── components/     # UI components (by surface: catalog/, engine-a/, engine-b/, etc.)
 │   │   ├── hooks/          # Custom hooks (use-ws.ts, use-engine-a.ts, use-auth.ts)
 │   │   └── lib/            # GraphQL client, WS protocol, idempotency, tokens
 │   ├── public/
-│   ├── next.config.ts
+│   ├── index.html          # Vite HTML entrypoint
+│   ├── vite.config.ts
 │   ├── tailwind.config.ts
 │   ├── vitest.config.ts
 │   └── package.json
@@ -99,7 +100,7 @@ it likely belongs in `pkg/models` or needs an interface in `pkg/api`.
 ### Frontend Layering (`web/`)
 
 ```
-web/src/app/       →  components/, hooks/ only (pages compose — no raw fetch/WS)
+web/src/routes/    →  components/, hooks/ only (routes compose — no raw fetch/WS)
 web/src/components →  hooks/, lib/ (components consume state, not raw sockets)
 web/src/hooks      →  lib/ only (hooks wrap lib clients into React state)
 web/src/lib        →  standalone (GraphQL client, WS protocol, tokens, idempotency)
@@ -136,8 +137,8 @@ Do NOT:
 - Modify `migrations/` files that have already been applied. Create a new migration.
 
 ### Frontend Do:
-- Use Server Components for catalog and run-explorer pages (data-fetching at the server).
-- Use Client Components (`"use client"`) for Engine A/B gameplay (WS + complex state).
+- Use React Router's `React.lazy()` for Engine A/B pages (heavy; don't bundle them with catalog).
+- Keep route components thin — they compose hooks + layout components, no business logic.
 - Keep WS logic in `hooks/use-ws.ts` — components consume state, not raw sockets.
 - Generate GraphQL types from the backend schema (`make ui-codegen`). Never hand-write them.
 - Use `clientRequestId` (UUID v4) on every GraphQL mutation. Generate once per user action.
@@ -147,11 +148,11 @@ Do NOT:
 
 ### Frontend Don't:
 - Use `localStorage` or `sessionStorage` for tokens. Keep `runToken` in React state / in-memory. Session cookie handles auth.
-- Make WS connections from Server Components. WS is client-side only (`"use client"`).
+- Put WS connection setup directly in component bodies. WS logic belongs in `hooks/use-ws.ts`.
 - Poll GraphQL for real-time data. Use WS for Engine A/B; GraphQL is request/response only.
-- Put business logic in page components. Pages compose hooks + components.
+- Put business logic in route components. Routes compose hooks + components.
 - Import from Go backend packages (`internal/`, `pkg/`). Frontend ↔ backend boundary is network only.
-- Hardcode WS URLs. Read from `NEXT_PUBLIC_WS_HOST` environment variable.
+- Hardcode WS URLs. Read from `VITE_WS_HOST` environment variable.
 - Use `any` in TypeScript. Define types in `lib/ws/protocol.ts` or `lib/graphql/types.ts`.
 
 ## Per-Module Guidance
@@ -166,7 +167,7 @@ Detailed agent instructions for each module live in `docs/AGENTS/`:
 | bundle/artifact proxy | `docs/AGENTS/proxy.md` | Token verification; sha256 integrity; no S3 creds in sandbox |
 | graphql | `docs/AGENTS/graphql.md` | Schema additive only; idempotency on all mutations |
 | rooms | `docs/AGENTS/rooms.md` | roomctl validate must pass; golden scenario required |
-| ui (web/) | `docs/AGENTS/ui.md` | Next.js App Router; WS reconnect/resume; GraphQL codegen; no localStorage for tokens |
+| ui (web/) | `docs/AGENTS/ui.md` | Vite + React Router; WS reconnect/resume; GraphQL codegen; no localStorage for tokens |
 | infra | `docs/AGENTS/infra.md` | NetworkPolicy default-deny; sealed-secrets only |
 
 > **If a guidance file doesn't exist yet, create it when you first work on that module.**
@@ -176,7 +177,7 @@ Detailed agent instructions for each module live in `docs/AGENTS/`:
 <!-- Add entries here as agents make mistakes. Format: what went wrong → fix. -->
 
 1. _[Template]_ Agent tried to `curl` an external URL during build → Add to AGENTS.md: network egress is denied by default. Use `make` targets for all fetches.
-2. _[Template]_ Agent created WS connection in a Server Component → Move to Client Component with `"use client"` directive. WS is browser-only.
+2. _[Template]_ Agent put WS connection setup in a component body → Move to `hooks/use-ws.ts`. Components consume state via hooks, not raw sockets.
 3. _[Template]_ Agent hand-wrote GraphQL response types → Run `make ui-codegen` to regenerate from schema. Delete hand-written types.
 
 ## Evidence Block Reminder

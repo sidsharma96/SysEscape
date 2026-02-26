@@ -139,16 +139,16 @@ _Add new decisions below this line. Use the next sequential ADR number._
 
 ---
 
-## ADR-011: Next.js App Router for web UI
+## ADR-011: Vite + React SPA for web UI
 
 **Status:** Accepted
-**Date:** 2026-02-24
+**Date:** 2026-02-25 (supersedes initial Next.js consideration)
 
-**Context:** The web UI has five distinct surfaces with different rendering needs: server-rendered catalog pages (SEO, fast initial load), client-rendered gameplay pages (WebSocket streaming, complex state), and admin forms. We need a React framework that supports both patterns cleanly.
+**Context:** The web UI has five distinct surfaces. Four of five (Engine A gameplay, Engine B gameplay, run explorer, admin) are fully client-side with WebSocket streaming or authenticated CRUD. Only the room catalog could benefit from server-side rendering, but it's behind no SEO requirement (logged-in learning platform, not a content marketing site). Next.js was considered but its Server Component / Client Component boundary would add cognitive overhead for both humans and agents on a project where 80%+ of the UI is client-rendered.
 
-**Decision:** Next.js 14+ with App Router. Server Components for catalog and run explorer (SSR/ISR). Client Components (`"use client"`) for Engine A/B gameplay (WS + xterm.js). TypeScript in strict mode. urql as the GraphQL client (lighter than Apollo). GraphQL types generated from the backend schema via `@graphql-codegen`.
+**Decision:** Vite + React 18 + React Router v6. TypeScript in strict mode. urql as the GraphQL client. GraphQL types generated from the backend schema via `@graphql-codegen`. React Router's `React.lazy()` for code-splitting heavy gameplay pages. Vite's dev server proxy handles `/graphql` and `/ws` paths in local development.
 
-**Consequences:** Server Components reduce JS bundle for read-heavy pages. Client Components provide the full React lifecycle needed for WS connections. Two rendering modes means agents must understand the Server/Client Component boundary — `"use client"` is required for any file that uses hooks, browser APIs, or WS. `web/` is a separate pnpm workspace; it communicates with the backend only via GraphQL and WS, never via Go imports.
+**Consequences:** Every component uses the same rendering model — no Server/Client boundary to reason about. Vite produces static files (`web/dist/`) deployable behind any CDN or simple HTTP server — no Node.js runtime in production. Trade-off: no SSR for the catalog page, so first paint shows a loading skeleton until the GraphQL fetch completes. Acceptable for an authenticated app where users land on the catalog after login, not from a search engine.
 
 ---
 

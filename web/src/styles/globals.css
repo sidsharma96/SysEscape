@@ -1,0 +1,17 @@
+@import "tailwindcss";
+
+@theme {
+  --color-panel-bg: #1e1e3f;
+  --color-panel-border: #2a2a5a;
+  --color-panel-hover: #2e2e6a;
+
+  --color-signal-ok: #73bf69;
+  --color-signal-warn: #ff9830;
+  --color-signal-crit: #f2495c;
+
+  --color-surface-dark: #0d0d1a;
+  --color-surface-mid: #1a1a2e;
+  --color-surface-light: #2a2a4a;
+
+  --font-mono: "JetBrains Mono", "Fira Code", monospace;
+}

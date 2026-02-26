@@ -62,7 +62,7 @@ Closes #
 - [ ] `docs/` updated if behavior or interfaces changed
 - [ ] `AGENTS.md` or `docs/AGENTS/*.md` updated if agent guidance affected
 - [ ] `docs/DECISIONS.md` updated if a new architectural decision was made
-- [ ] If touching `web/`: no `any` types, no `localStorage` for tokens, no WS in Server Components
+- [ ] If touching `web/`: no `any` types, no `localStorage` for tokens, WS logic in hooks only
 - [ ] If GraphQL schema changed: `make ui-codegen` run and generated types committed
 
 

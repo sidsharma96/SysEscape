@@ -168,32 +168,24 @@ systems-escape-rooms/
 │               ├── hidden_tests/      # Tests player never sees (grading criteria)
 │               └── harness/           # Test runner scaffolding
 │
-├── web/                              # ── FRONTEND (Next.js) ──
+├── web/                              # ── FRONTEND (Vite + React SPA) ──
 │   │                                 # Fully separate TypeScript project. Communicates with
 │   │                                 # backend ONLY via GraphQL (:8080) and WebSocket (:8081/:8082).
-│   │                                 # Never imports from Go packages.
+│   │                                 # Never imports from Go packages. Produces static files (dist/).
 │   │
 │   ├── src/
-│   │   ├── app/                      # Next.js App Router (pages + layouts)
-│   │   │   ├── layout.tsx            # Root layout: auth provider, theme, nav shell
-│   │   │   ├── page.tsx              # Landing → room catalog
-│   │   │   ├── login/
-│   │   │   │   └── page.tsx          # GitHub OAuth callback
-│   │   │   ├── rooms/
-│   │   │   │   └── [slug]/
-│   │   │   │       └── page.tsx      # Room detail + "Start Run" CTA
-│   │   │   ├── play/
-│   │   │   │   └── [runId]/
-│   │   │   │       ├── page.tsx      # Run router: redirect to engine-a or engine-b
-│   │   │   │       ├── engine-a/
-│   │   │   │       │   └── page.tsx  # Engine A gameplay (panels + topology + actions)
-│   │   │   │       └── engine-b/
-│   │   │   │           └── page.tsx  # Engine B gameplay (terminal + submit + judge results)
-│   │   │   ├── runs/
-│   │   │   │   └── page.tsx          # Run history + progress dashboard
-│   │   │   └── admin/
-│   │   │       └── publish/
-│   │   │           └── page.tsx      # Room publishing (ADMIN only)
+│   │   ├── main.tsx                  # Vite entrypoint (renders <App />)
+│   │   ├── App.tsx                   # React Router setup + providers (auth, theme)
+│   │   │
+│   │   ├── routes/                   # Route components (one file per page)
+│   │   │   ├── Layout.tsx            # Root layout: nav shell, auth guard wrapper, theme
+│   │   │   ├── CatalogPage.tsx       # Landing → room catalog grid
+│   │   │   ├── RoomDetailPage.tsx    # Room detail + "Start Run" CTA
+│   │   │   ├── LoginCallbackPage.tsx # GitHub OAuth callback
+│   │   │   ├── EngineAPage.tsx       # Engine A gameplay (panels + topology + actions)
+│   │   │   ├── EngineBPage.tsx       # Engine B gameplay (terminal + submit + judge results)
+│   │   │   ├── RunsPage.tsx          # Run history + progress dashboard
+│   │   │   └── AdminPublishPage.tsx  # Room publishing (ADMIN only)
 │   │   │
 │   │   ├── components/               # UI components (organized by surface)
 │   │   │   ├── ui/                   # Generic primitives: Button, Card, Modal, Toast, Badge
@@ -239,14 +231,15 @@ systems-escape-rooms/
 │   │           └── catalog/room-card.test.tsx
 │   │
 │   ├── public/                       # Static assets (favicons, images)
+│   ├── index.html                    # Vite HTML entrypoint
 │   ├── schema.graphql                # 🔗 Copied/synced from backend for codegen
 │   ├── codegen.ts                    # GraphQL Codegen config
-│   ├── next.config.ts                # Next.js config (rewrites for WS proxy in dev)
+│   ├── vite.config.ts                # Vite config (proxy for /graphql + /ws in dev)
 │   ├── tailwind.config.ts            # Tailwind theme (Grafana-dark tokens)
 │   ├── tsconfig.json                 # TypeScript strict mode
 │   ├── vitest.config.ts              # Vitest + React Testing Library
 │   ├── .eslintrc.json                # ESLint config
-│   ├── .env.local                    # UI env vars (NEXT_PUBLIC_GRAPHQL_URL, NEXT_PUBLIC_WS_HOST)
+│   ├── .env.local                    # UI env vars (VITE_GRAPHQL_URL, VITE_WS_HOST)
 │   ├── pnpm-lock.yaml
 │   └── package.json
 │
@@ -307,7 +300,7 @@ systems-escape-rooms/
 │       ├── graphql.md
 │       ├── rooms.md
 │       ├── infra.md
-│       └── ui.md                     # Frontend agent guidance (Next.js, WS, components)
+│       └── ui.md                     # Frontend agent guidance (Vite + React, WS, components)
 │
 ├── .github/
 │   ├── PULL_REQUEST_TEMPLATE.md      # Evidence Block + checklists
@@ -363,13 +356,15 @@ systems-escape-rooms/
 
 ## Key Structural Decisions (with rationale)
 
-### 1. Monorepo with Go + Next.js colocated
+### 1. Monorepo with Go + Vite React colocated
 
-The Go backend and Next.js frontend live in the same repository but are completely independent build systems. Go uses `go.mod` at the root; Next.js uses `pnpm` in `web/`. They share no code — the boundary between them is the network (GraphQL + WS).
+The Go backend and Vite React frontend live in the same repository but are completely independent build systems. Go uses `go.mod` at the root; the frontend uses `pnpm` in `web/`. They share no code — the boundary between them is the network (GraphQL + WS).
 
 **Why monorepo:** You're a solo builder with agents. Having everything in one repo means every agent can see the full picture. Context packs can include both backend and frontend files. CI runs against the whole system. The alternative (polyrepo) would add coordination overhead between repos with no benefit at this scale.
 
 **Why separate build systems (not a JS monorepo tool):** Go's toolchain is self-contained and fast. Mixing it into a turborepo/nx setup would add complexity with no gain. `make` unifies the command surface — `make ci` runs both Go and TypeScript checks.
+
+**Why Vite over Next.js:** Four of five UI surfaces are fully client-rendered with WebSocket streaming. Only the room catalog could benefit from SSR, but it's a logged-in app with no SEO requirement. Vite eliminates the Server/Client Component boundary (a common source of agent mistakes), produces static files deployable behind any CDN (no Node.js runtime in production), and has near-instant HMR for development. See ADR-011 for the full rationale.
 
 ### 2. `internal/` sub-layering: transport → service → repo
 

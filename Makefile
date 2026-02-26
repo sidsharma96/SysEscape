@@ -180,16 +180,16 @@ ui-install: ## Install web UI dependencies (pnpm install)
 		echo "SKIP: $(UI_DIR)/package.json not found. UI not set up yet."; \
 	fi
 
-ui-dev: ## Start Next.js dev server on :3000
+ui-dev: ## Start Vite dev server on :3000
 	@if [ -f $(UI_DIR)/package.json ]; then \
-		cd $(UI_DIR) && $(PNPM) dev; \
+		cd $(UI_DIR) && $(PNPM) run dev; \
 	else \
 		echo "SKIP: $(UI_DIR)/package.json not found. UI not set up yet."; \
 	fi
 
 ui-lint: ## Run ESLint + TypeScript type-check on web/
 	@if [ -f $(UI_DIR)/package.json ]; then \
-		cd $(UI_DIR) && $(PNPM) lint && $(PNPM) tsc --noEmit; \
+		cd $(UI_DIR) && $(PNPM) run lint; \
 		echo "UI lint passed."; \
 	else \
 		echo "SKIP: $(UI_DIR)/package.json not found. UI not set up yet."; \
@@ -197,15 +197,15 @@ ui-lint: ## Run ESLint + TypeScript type-check on web/
 
 ui-test: ## Run Vitest (unit + component tests) for web/
 	@if [ -f $(UI_DIR)/package.json ]; then \
-		cd $(UI_DIR) && $(PNPM) test --run; \
+		cd $(UI_DIR) && $(PNPM) run test -- --run; \
 		echo "UI tests passed."; \
 	else \
 		echo "SKIP: $(UI_DIR)/package.json not found. UI not set up yet."; \
 	fi
 
-ui-build: ## Build Next.js for production
+ui-build: ## Build Vite production bundle
 	@if [ -f $(UI_DIR)/package.json ]; then \
-		cd $(UI_DIR) && $(PNPM) build; \
+		cd $(UI_DIR) && $(PNPM) run build; \
 		echo "UI production build succeeded."; \
 	else \
 		echo "SKIP: $(UI_DIR)/package.json not found. UI not set up yet."; \
@@ -213,7 +213,7 @@ ui-build: ## Build Next.js for production
 
 ui-codegen: ## Generate TypeScript types from GraphQL schema
 	@if [ -f $(UI_DIR)/package.json ]; then \
-		cd $(UI_DIR) && $(PNPM) codegen; \
+		cd $(UI_DIR) && $(PNPM) run codegen; \
 		echo "GraphQL types regenerated in web/src/lib/graphql/types.ts"; \
 	else \
 		echo "SKIP: $(UI_DIR)/package.json not found. UI not set up yet."; \
@@ -221,7 +221,7 @@ ui-codegen: ## Generate TypeScript types from GraphQL schema
 
 ui-fmt: ## Auto-fix UI formatting (Prettier + ESLint --fix)
 	@if [ -f $(UI_DIR)/package.json ]; then \
-		cd $(UI_DIR) && $(PNPM) format; \
+		cd $(UI_DIR) && $(PNPM) run format; \
 		echo "UI formatted."; \
 	else \
 		echo "SKIP: $(UI_DIR)/package.json not found. UI not set up yet."; \

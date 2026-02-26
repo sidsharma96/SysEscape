@@ -29,7 +29,7 @@ by diagnosing signals (metrics, logs, traces, topologies) and applying fixes.
 │                                                                  │
 │  ┌──────────┐  ┌──────────────┐  ┌──────────────┐               │
 │  │  Web UI  │  │ GraphQL BFF  │  │  Engine A    │               │
-│  │(Next.js) │  │ (control     │  │  Service     │               │
+│  │(Vite SPA)│  │ (control     │  │  Service     │               │
 │  │ :3000    │  │  plane)      │  │ (sim + WS)   │               │
 │  └────┬─────┘  └──────┬───────┘  └──────┬───────┘               │
 │       │               │                  │                        │
@@ -155,28 +155,29 @@ Admin → roomctl validate (schema + leak check)
 
 ## 7. Frontend Architecture (`web/`)
 
-The web UI is a **Next.js 14+ App Router** application (TypeScript / React / Tailwind CSS).
+The web UI is a **Vite + React** single-page application (TypeScript / React Router / Tailwind CSS).
 It communicates with the backend exclusively via GraphQL (control plane) and WebSocket (real-time streaming).
+It produces static files deployable behind any CDN or simple HTTP server — no Node.js runtime required in production.
 
 ### Five UI Surfaces
 
 | Surface | Route | Data Source | Rendering |
 |---------|-------|-------------|-----------|
-| **Room Catalog** | `/`, `/rooms/[slug]` | GraphQL queries | Server Components (SSR/ISR) |
-| **Engine A Gameplay** | `/play/[runId]/engine-a` | WS: `wss://.../ws/engineA/{runId}` | Client Components (snapshot + delta stream) |
-| **Engine B Gameplay** | `/play/[runId]/engine-b` | WS: `wss://.../ws/engineB/{runId}` | Client Components (xterm.js terminal + judge results) |
-| **Run Explorer** | `/runs` | GraphQL queries | Server Components + streaming |
-| **Admin Publishing** | `/admin/publish` | GraphQL mutations | Client Components (ADMIN-gated form) |
+| **Room Catalog** | `/`, `/rooms/:slug` | GraphQL queries | Fetch on mount, cached |
+| **Engine A Gameplay** | `/play/:runId/engine-a` | WS: `wss://.../ws/engineA/{runId}` | WS snapshot + delta stream |
+| **Engine B Gameplay** | `/play/:runId/engine-b` | WS: `wss://.../ws/engineB/{runId}` | xterm.js terminal + judge results |
+| **Run Explorer** | `/runs` | GraphQL queries | Fetch on mount |
+| **Admin Publishing** | `/admin/publish` | GraphQL mutations | ADMIN-gated form |
 
 ### Frontend-to-Backend Communication
 
 ```
- Next.js (web/)
+ Vite SPA (web/)
  ┌──────────────────────────────┐
- │  Server Components           │──GraphQL fetch──▶ GraphQL BFF (:8080)
+ │  Route components            │──GraphQL fetch──▶ GraphQL BFF (:8080)
  │  (catalog, run explorer)     │                   (session cookie auth)
  │                              │
- │  Client Components           │──WebSocket──────▶ Engine A (:8081)
+ │  Gameplay components         │──WebSocket──────▶ Engine A (:8081)
  │  (Engine A panels,           │  hello(runToken,   /ws/engineA/{runId}
  │   Engine B terminal)         │   resumeFromSeq)
  │                              │
@@ -237,7 +238,7 @@ judge          → token (verify bundleToken), models, platform, Kafka consumer,
 bundle-proxy   → token (verify bundleToken), platform
 artifact-proxy → token (verify artifactToken), platform
 roomctl        → publish (validate/build logic), models
-web/ (Next.js) → GraphQL BFF (via HTTP), Engine A/B (via WS) — NO Go imports
+web/ (Vite SPA) → GraphQL BFF (via HTTP), Engine A/B (via WS) — NO Go imports
 ```
 
 No service imports another service's internal packages directly. Communication is via:
@@ -256,5 +257,5 @@ only through GraphQL codegen (`make ui-codegen`), never through Go package impor
 - **Container images:** GitHub Container Registry (GHCR).
 - **Room bundles + artifacts:** S3 (content-addressed keys).
 - **Secrets:** Kubernetes Secrets + sealed-secrets (git-safe). Sandbox namespace does NOT mount platform secrets.
-- **Web UI:** Next.js production build served from the VPS. In dev: `make ui-dev` on :3000 with proxy to backend :8080. In production: static export behind CDN or Node.js server on the VPS.
+- **Web UI:** Vite produces static files (`web/dist/`). In dev: `make ui-dev` on :3000 with proxy to backend :8080. In production: serve from Cloudflare CDN or an nginx container on the VPS. No Node.js runtime needed.
 - **Network:** Only 80/443 exposed to internet. Postgres/Kafka/Redis listen on node-private interface only.
