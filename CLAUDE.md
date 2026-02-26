@@ -128,6 +128,7 @@ Do NOT:
 - Use table-driven tests (`func TestX(t *testing.T) { tests := []struct{...} }`).
 
 ### Don't:
+- Add `Co-Authored-By` lines to commit messages. Keep commits clean.
 - Invent new make targets without updating this file and the Makefile.
 - Use `fmt.Println` for logging. Use `slog` via the platform logger.
 - Put business logic in `cmd/` main files. They only wire dependencies.
