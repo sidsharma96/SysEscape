@@ -1,5 +1,7 @@
 import { lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { Provider } from "urql";
+import { urqlClient } from "@/lib/graphql/client";
 import { Layout } from "./routes/Layout.tsx";
 import { CatalogPage } from "./routes/CatalogPage.tsx";
 import { RoomDetailPage } from "./routes/RoomDetailPage.tsx";
@@ -25,31 +27,33 @@ function LoadingFallback() {
 export function App() {
   return (
     <BrowserRouter>
-      <Routes>
-        <Route element={<Layout />}>
-          <Route index element={<CatalogPage />} />
-          <Route path="rooms/:slug" element={<RoomDetailPage />} />
-          <Route path="login/callback" element={<LoginCallbackPage />} />
-          <Route
-            path="play/:runId/engine-a"
-            element={
-              <Suspense fallback={<LoadingFallback />}>
-                <EngineAPage />
-              </Suspense>
-            }
-          />
-          <Route
-            path="play/:runId/engine-b"
-            element={
-              <Suspense fallback={<LoadingFallback />}>
-                <EngineBPage />
-              </Suspense>
-            }
-          />
-          <Route path="runs" element={<RunsPage />} />
-          <Route path="admin/publish" element={<AdminPublishPage />} />
-        </Route>
-      </Routes>
+      <Provider value={urqlClient}>
+        <Routes>
+          <Route element={<Layout />}>
+            <Route index element={<CatalogPage />} />
+            <Route path="rooms/:slug" element={<RoomDetailPage />} />
+            <Route path="login/callback" element={<LoginCallbackPage />} />
+            <Route
+              path="play/:runId/engine-a"
+              element={
+                <Suspense fallback={<LoadingFallback />}>
+                  <EngineAPage />
+                </Suspense>
+              }
+            />
+            <Route
+              path="play/:runId/engine-b"
+              element={
+                <Suspense fallback={<LoadingFallback />}>
+                  <EngineBPage />
+                </Suspense>
+              }
+            />
+            <Route path="runs" element={<RunsPage />} />
+            <Route path="admin/publish" element={<AdminPublishPage />} />
+          </Route>
+        </Routes>
+      </Provider>
     </BrowserRouter>
   );
 }

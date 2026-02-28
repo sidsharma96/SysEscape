@@ -14,4 +14,16 @@
   --color-surface-light: #2a2a4a;
 
   --font-mono: "JetBrains Mono", "Fira Code", monospace;
+
+  --animate-skeleton-delayed: skeleton-appear 0.15s ease-out 200ms both, skeleton-pulse 1.5s ease-in-out 400ms infinite;
+}
+
+@keyframes skeleton-appear {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
 }
