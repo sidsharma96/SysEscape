@@ -1,0 +1,34 @@
+type Query {
+  viewer: Viewer
+  rooms(engine: RoomEngine, difficulty: RoomDifficulty, district: String): [Room!]!
+  roomBySlug(slug: String!): Room
+}
+
+type Viewer {
+  userId: ID!
+  role: String!
+  githubUsername: String
+}
+
+type Room {
+  id: ID!
+  slug: String!
+  title: String!
+  district: String!
+  engine: RoomEngine!
+  difficulty: RoomDifficulty!
+  description: String!
+  latestVersion: RoomVersion
+}
+
+type RoomVersion {
+  id: ID!
+  versionNumber: Int!
+  status: RoomVersionStatus!
+  changelog: String!
+  publishedAt: String!
+}
+
+enum RoomEngine { A B }
+enum RoomDifficulty { L0 L1 L2 L3 }
+enum RoomVersionStatus { PUBLISHED DEPRECATED DISABLED }
