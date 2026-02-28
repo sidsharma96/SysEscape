@@ -1,186 +1,85 @@
 # AGENTS.md — Systems Escape Rooms
 
-> **This file is a living document.** Update it every time an agent makes a mistake.
-> Each entry should correspond to a specific past failure that is now prevented.
+> Update this file when an agent makes a mistake that no linter or test caught.
+> Every entry should prevent a specific past failure from recurring.
 
-## Quick Reference
+## Commands
 
-| Command | Purpose |
-|---------|---------|
-| `make ci` | Run full gate: lint + test-unit + test-integration + build |
-| `make lint` | Go vet + staticcheck + custom arch lint |
-| `make test-unit` | Fast unit tests only (<2 min target) |
-| `make test-integration` | Requires docker-compose up (Postgres/Kafka/Redis) |
-| `make build` | Build all service binaries |
-| `make fmt` | gofumpt + goimports (auto-format) |
-| `make migrate-up` | Apply pending Postgres migrations |
-| `make roomctl-validate` | Validate room content (schema + leak check) |
-| `make ui-dev` | Start Vite dev server on :3000 |
-| `make ui-lint` | ESLint + TypeScript type-check for `web/` |
-| `make ui-test` | Vitest unit + component tests |
-| `make ui-build` | Vite production build |
-| `make ui-codegen` | Generate TypeScript types from GraphQL schema |
+| Command                 | Purpose                                                            |
+| ----------------------- | ------------------------------------------------------------------ |
+| `make ci`               | **Run this before declaring done.** Full gate: lint + test + build |
+| `make lint`             | Go vet + staticcheck + arch lint                                   |
+| `make test-unit`        | Fast unit tests (<2 min)                                           |
+| `make test-integration` | Requires `make dev-up` (Postgres/Kafka/Redis)                      |
+| `make build`            | Compile all service binaries                                       |
+| `make fmt`              | Auto-format (gofumpt + goimports)                                  |
+| `make migrate-up`       | Apply pending Postgres migrations                                  |
+| `make ui-dev`           | Vite dev server on :3000                                           |
+| `make ui-lint`          | ESLint + TypeScript type-check                                     |
+| `make ui-test`          | Vitest tests                                                       |
+| `make ui-build`         | Vite production build                                              |
+| `make ui-codegen`       | Generate TS types from GraphQL schema                              |
 
-## Project Structure
+## Stop Conditions
 
-```
-systems-escape-rooms/
-├── cmd/                    # Service entrypoints (main.go per service)
-│   ├── graphql-bff/
-│   ├── engine-a/
-│   ├── engine-b-orchestrator/
-│   ├── judge-dispatcher/
-│   ├── bundle-proxy/
-│   ├── artifact-proxy/
-│   └── roomctl/            # CLI tool for room publishing
-├── internal/               # Private Go packages (the bulk of the code)
-│   ├── auth/               # GitHub OAuth, session, RBAC
-│   ├── catalog/            # Room/version queries
-│   ├── engine/
-│   │   ├── a/              # Engine A simulator runtime
-│   │   └── b/              # Engine B orchestrator + judge dispatch
-│   ├── bundle/             # Bundle proxy logic, token verification
-│   ├── artifact/           # Artifact proxy logic
-│   ├── publish/            # Room publishing pipeline
-│   ├── ws/                 # WebSocket server, reconnect/resume
-│   ├── idempotency/        # clientRequestId dedup
-│   ├── token/              # JWT minting/verification (run/bundle/artifact tokens)
-│   └── platform/           # Shared: logging, tracing, config, errors
-├── pkg/                    # Public Go packages (shared types/interfaces)
-│   ├── models/             # Domain types: Room, Run, Submission, etc.
-│   └── api/                # GraphQL schema types (generated)
-├── migrations/             # Postgres migrations (sequential, numbered)
-├── rooms/                  # Room content (one dir per room slug)
-│   └── <room-slug>/
-│       ├── metadata.yaml
-│       ├── engineA/        # or engineB/
-│       └── ...
-├── infra/                  # Docker, k8s manifests, network policies
-│   ├── docker-compose.yaml
-│   ├── k8s/
-│   └── scripts/
-├── web/                    # Vite + React SPA (TypeScript)
-│   ├── src/
-│   │   ├── routes/         # Route components (CatalogPage, EngineAPage, etc.)
-│   │   ├── components/     # UI components (by surface: catalog/, engine-a/, engine-b/, etc.)
-│   │   ├── hooks/          # Custom hooks (use-ws.ts, use-engine-a.ts, use-auth.ts)
-│   │   └── lib/            # GraphQL client, WS protocol, idempotency, tokens
-│   ├── public/
-│   ├── index.html          # Vite HTML entrypoint
-│   ├── vite.config.ts
-│   ├── tailwind.config.ts
-│   ├── vitest.config.ts
-│   └── package.json
-├── docs/                   # Architecture, decisions, dev guide, agent guidance
-│   ├── ARCHITECTURE.md
-│   ├── DECISIONS.md
-│   ├── DEV.md
-│   └── AGENTS/             # Per-module agent guidance (see below)
-├── .github/
-│   ├── PULL_REQUEST_TEMPLATE.md
-│   └── workflows/
-├── Makefile
-├── go.mod
-├── go.sum
-└── AGENTS.md               # This file
-```
+- If `make ci` fails twice on the same issue: **STOP.** Describe the failure. Do not loop.
+- If you need to modify files outside your stated task scope: **STOP** and ask.
+- If a test is flaky (passes sometimes, fails sometimes): **STOP** and report it.
+  Do not add retries or `time.Sleep` hacks.
+- Maximum 2 CI retry cycles per PR. After that, the harness needs fixing, not the code.
 
-## Layering Rules (STRICT — linter-enforced)
+## Core Invariants (linter-enforced)
 
 ```
-pkg/models  →  (no internal imports)
+pkg/models  →  no internal/ imports
 pkg/api     →  pkg/models only
 internal/*  →  pkg/models, pkg/api, internal/platform
-cmd/*       →  internal/*, pkg/*
+cmd/*       →  internal/*, pkg/*  (cmd/ packages are leaves, not libraries)
+web/        →  network boundary only: GraphQL + WebSocket. Never imports Go packages.
 ```
 
-**Violations are CI failures.** If you need a type from another internal package,
-it likely belongs in `pkg/models` or needs an interface in `pkg/api`.
+Shared types between frontend and backend come from GraphQL codegen, not from Go.
 
-### Frontend Layering (`web/`)
+## Key Rules
 
-```
-web/src/routes/    →  components/, hooks/ only (routes compose — no raw fetch/WS)
-web/src/components →  hooks/, lib/ (components consume state, not raw sockets)
-web/src/hooks      →  lib/ only (hooks wrap lib clients into React state)
-web/src/lib        →  standalone (GraphQL client, WS protocol, tokens, idempotency)
-```
+- Write failing tests FIRST. Confirm they fail. Then implement.
+- All external inputs validated at the boundary (transport layer).
+- `clientRequestId` (UUID v4) on every mutation — idempotency is a system invariant.
+- Structured JSON logging via `slog`. Include `requestId` and `runId` where available.
+- Never modify a migration file that has already been applied. Create a new one.
+- Business logic lives in `internal/*/service/`. Not in `cmd/` (wiring only) or transport (HTTP/GraphQL handlers).
+- Database access goes through repo interfaces that accept/return `pkg/models` types. Use `pgx/v5`, not `database/sql`.
 
-**Cross-boundary rule:** `web/` never imports from `internal/`, `pkg/`, or `cmd/`.
-The frontend communicates with the backend **only** via GraphQL and WebSocket.
-Shared types come from GraphQL codegen (`web/src/lib/graphql/types.ts`), not from Go.
+## Frontend Key Rules
 
-Do NOT:
-- Import `internal/engine/a` from `internal/engine/b` or vice versa.
-- Import `internal/auth` from `internal/engine/*` — use the token interfaces.
-- Import `cmd/*` from `internal/*` — command packages are leaves, not libraries.
+- WS logic in `hooks/` only. Components consume state via hooks, not raw sockets.
+- `React.lazy()` for Engine A/B pages. Don't bundle gameplay with the catalog.
+- Tokens in memory only. Never `localStorage`/`sessionStorage`. Session cookie handles auth.
+- Generate GraphQL types with `make ui-codegen`. Never hand-write them.
+- Read from `VITE_*` env vars. Never hardcode URLs.
 
-## Do / Don't
+## Before Working on a Module
 
-### Do:
-- Write failing tests FIRST, confirm they fail, then implement.
-- Use `make ci` before opening a PR. No exceptions.
-- Keep PRs under 400 lines of diff. If bigger, propose a split plan.
-- Use `clientRequestId` for all mutations (idempotency is a system invariant).
-- Use structured JSON logging via `internal/platform/log`.
-- Add `requestId` and `runId` fields to all log entries where available.
-- Validate all external inputs at boundary (transport layer), not deep in business logic.
-- Use table-driven tests (`func TestX(t *testing.T) { tests := []struct{...} }`).
+**IMPORTANT:** Read the relevant guidance file before starting. These contain module-specific
+patterns, pitfalls, and architectural decisions that aren't in this file.
 
-### Don't:
-- Add `Co-Authored-By` lines to commit messages. Keep commits clean.
-- Invent new make targets without updating this file and the Makefile.
-- Use `fmt.Println` for logging. Use `slog` via the platform logger.
-- Put business logic in `cmd/` main files. They only wire dependencies.
-- Access Postgres directly from transport/handler code — go through the repo layer.
-- Store secrets in environment variables. Use the secrets broker (see docs/ARCHITECTURE.md).
-- Make network calls without going through adapter interfaces (must be mockable).
-- Modify `migrations/` files that have already been applied. Create a new migration.
+| Module                       | Read first                |
+| ---------------------------- | ------------------------- |
+| Auth (OAuth, sessions, RBAC) | `docs/AGENTS/auth.md`     |
+| Room catalog                 | `docs/AGENTS/catalog.md`  |
+| Engine A (simulator)         | `docs/AGENTS/engine-a.md` |
+| Engine B (sandbox + judge)   | `docs/AGENTS/engine-b.md` |
+| GraphQL BFF                  | `docs/AGENTS/graphql.md`  |
+| Frontend (web/)              | `docs/AGENTS/ui.md`       |
+| Bundle/artifact proxies      | `docs/AGENTS/proxy.md`    |
+| Infrastructure               | `docs/AGENTS/infra.md`    |
+| Room content authoring       | `docs/AGENTS/rooms.md`    |
 
-### Frontend Do:
-- Use React Router's `React.lazy()` for Engine A/B pages (heavy; don't bundle them with catalog).
-- Keep route components thin — they compose hooks + layout components, no business logic.
-- Keep WS logic in `hooks/use-ws.ts` — components consume state, not raw sockets.
-- Generate GraphQL types from the backend schema (`make ui-codegen`). Never hand-write them.
-- Use `clientRequestId` (UUID v4) on every GraphQL mutation. Generate once per user action.
-- Handle WS reconnection gracefully — show "Reconnecting…" toast, not a crash.
-- Use `React.memo` on Engine A panel components (delta stream causes frequent re-renders).
-- Put Engine A components in `components/engine-a/` and Engine B in `components/engine-b/`. Never mix them.
+If a guidance file doesn't exist yet, create it when you first work on that module.
 
-### Frontend Don't:
-- Use `localStorage` or `sessionStorage` for tokens. Keep `runToken` in React state / in-memory. Session cookie handles auth.
-- Put WS connection setup directly in component bodies. WS logic belongs in `hooks/use-ws.ts`.
-- Poll GraphQL for real-time data. Use WS for Engine A/B; GraphQL is request/response only.
-- Put business logic in route components. Routes compose hooks + components.
-- Import from Go backend packages (`internal/`, `pkg/`). Frontend ↔ backend boundary is network only.
-- Hardcode WS URLs. Read from `VITE_WS_HOST` environment variable.
-- Use `any` in TypeScript. Define types in `lib/ws/protocol.ts` or `lib/graphql/types.ts`.
+For detailed coding conventions (Do/Don't lists, testing patterns, PR requirements):
+see `docs/AGENTS/conventions.md`.
 
-## Per-Module Guidance
+## Common Mistakes
 
-Detailed agent instructions for each module live in `docs/AGENTS/`:
-
-| Module | Guidance File | Key Constraints |
-|--------|---------------|-----------------|
-| auth | `docs/AGENTS/auth.md` | GitHub OAuth flow; session cookie; RBAC (USER/ADMIN) |
-| engine-a | `docs/AGENTS/engine-a.md` | Must be deterministic (seed + action log = same outcome) |
-| engine-b | `docs/AGENTS/engine-b.md` | Workspace + judge isolation; no hidden test leakage |
-| bundle/artifact proxy | `docs/AGENTS/proxy.md` | Token verification; sha256 integrity; no S3 creds in sandbox |
-| graphql | `docs/AGENTS/graphql.md` | Schema additive only; idempotency on all mutations |
-| rooms | `docs/AGENTS/rooms.md` | roomctl validate must pass; golden scenario required |
-| ui (web/) | `docs/AGENTS/ui.md` | Vite + React Router; WS reconnect/resume; GraphQL codegen; no localStorage for tokens |
-| infra | `docs/AGENTS/infra.md` | NetworkPolicy default-deny; sealed-secrets only |
-
-> **If a guidance file doesn't exist yet, create it when you first work on that module.**
-
-## Common Mistakes (update this section after every agent failure)
-
-<!-- Add entries here as agents make mistakes. Format: what went wrong → fix. -->
-
-1. _[Template]_ Agent tried to `curl` an external URL during build → Add to AGENTS.md: network egress is denied by default. Use `make` targets for all fetches.
-2. _[Template]_ Agent put WS connection setup in a component body → Move to `hooks/use-ws.ts`. Components consume state via hooks, not raw sockets.
-3. _[Template]_ Agent hand-wrote GraphQL response types → Run `make ui-codegen` to regenerate from schema. Delete hand-written types.
-
-## Evidence Block Reminder
-
-Every PR must include an Evidence Block. See `.github/PULL_REQUEST_TEMPLATE.md`.
+Track at: `docs/AGENTS/common-mistakes.md`. Add an entry after every agent failure.
