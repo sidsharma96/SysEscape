@@ -1,0 +1,14 @@
+topology:
+  - name: app-server
+    type: service
+  - name: cache
+    type: redis
+  - name: database
+    type: postgres
+initialMetrics:
+  request_latency_ms: 45
+  db_connections: 20
+  cache_hit_rate: 0.97
+  error_rate: 0.001
+config:
+  cache_ttl_seconds: 60

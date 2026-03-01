@@ -1,0 +1,10 @@
+checks:
+  - metric: cache_hit_rate
+    op: ">"
+    value: 0.95
+  - metric: db_connections
+    op: "<"
+    value: 80
+  - metric: error_rate
+    op: "<"
+    value: 0.01
