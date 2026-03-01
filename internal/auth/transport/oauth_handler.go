@@ -24,7 +24,12 @@ func HandleGitHubLogin(cfg service.OAuthConfig) http.HandlerFunc {
 }
 
 // HandleGitHubCallback handles OAuth callback, creates a session, and sets cookie.
-func HandleGitHubCallback(authService *service.AuthService) http.HandlerFunc {
+func HandleGitHubCallback(authService *service.AuthService, cfg service.OAuthConfig) http.HandlerFunc {
+	redirectURL := cfg.PostLoginRedirectURL
+	if redirectURL == "" {
+		redirectURL = "/"
+	}
+
 	return func(w http.ResponseWriter, r *http.Request) {
 		code := r.URL.Query().Get("code")
 		if code == "" {
@@ -58,7 +63,7 @@ func HandleGitHubCallback(authService *service.AuthService) http.HandlerFunc {
 			Expires:  session.ExpiresAt,
 		})
 
-		http.Redirect(w, r, "/", http.StatusFound)
+		http.Redirect(w, r, redirectURL, http.StatusFound)
 	}
 }
 

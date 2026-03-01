@@ -84,7 +84,7 @@ func TestHandleGitHubCallback_Success(t *testing.T) {
 		service.OAuthConfig{},
 	)
 
-	handler := HandleGitHubCallback(authService)
+	handler := HandleGitHubCallback(authService, service.OAuthConfig{})
 
 	req := httptest.NewRequest(http.MethodGet, "/auth/github/callback?code=valid", nil)
 	rr := httptest.NewRecorder()
@@ -126,7 +126,7 @@ func TestHandleGitHubCallback_Success(t *testing.T) {
 }
 
 func TestHandleGitHubCallback_MissingCode(t *testing.T) {
-	handler := HandleGitHubCallback(nil)
+	handler := HandleGitHubCallback(nil, service.OAuthConfig{})
 
 	req := httptest.NewRequest(http.MethodGet, "/auth/github/callback", nil)
 	rr := httptest.NewRecorder()

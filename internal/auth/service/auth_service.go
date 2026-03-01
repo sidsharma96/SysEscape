@@ -33,9 +33,10 @@ type SessionRepo interface {
 
 // OAuthConfig stores GitHub OAuth credentials and callback URL.
 type OAuthConfig struct {
-	ClientID     string
-	ClientSecret string
-	RedirectURL  string
+	ClientID               string
+	ClientSecret           string
+	RedirectURL            string
+	PostLoginRedirectURL   string
 }
 
 // AuthService orchestrates GitHub OAuth login and session management.

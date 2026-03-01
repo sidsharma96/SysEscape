@@ -6,6 +6,7 @@ import { Layout } from "./routes/Layout.tsx";
 import { CatalogPage } from "./routes/CatalogPage.tsx";
 import { RoomDetailPage } from "./routes/RoomDetailPage.tsx";
 import { LoginCallbackPage } from "./routes/LoginCallbackPage.tsx";
+import { LoginPage } from "./routes/LoginPage.tsx";
 import { RunsPage } from "./routes/RunsPage.tsx";
 import { AdminPublishPage } from "./routes/AdminPublishPage.tsx";
 
@@ -32,6 +33,7 @@ export function App() {
           <Route element={<Layout />}>
             <Route index element={<CatalogPage />} />
             <Route path="rooms/:slug" element={<RoomDetailPage />} />
+            <Route path="login" element={<LoginPage />} />
             <Route path="login/callback" element={<LoginCallbackPage />} />
             <Route
               path="play/:runId/engine-a"

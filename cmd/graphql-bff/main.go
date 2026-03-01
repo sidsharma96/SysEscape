@@ -26,21 +26,23 @@ import (
 
 // Config holds GraphQL BFF runtime configuration loaded from env vars.
 type Config struct {
-	DatabaseURL        string
-	GitHubClientID     string
-	GitHubClientSecret string
-	GitHubRedirectURL  string
-	Port               string
+	DatabaseURL          string
+	GitHubClientID       string
+	GitHubClientSecret   string
+	GitHubRedirectURL    string
+	PostLoginRedirectURL string
+	Port                 string
 }
 
 // LoadConfigFromEnv loads and validates all required GraphQL BFF env vars.
 func LoadConfigFromEnv() (Config, error) {
 	cfg := Config{
-		DatabaseURL:        os.Getenv("DATABASE_URL"),
-		GitHubClientID:     os.Getenv("GITHUB_CLIENT_ID"),
-		GitHubClientSecret: os.Getenv("GITHUB_CLIENT_SECRET"),
-		GitHubRedirectURL:  os.Getenv("GITHUB_REDIRECT_URL"),
-		Port:               os.Getenv("PORT"),
+		DatabaseURL:          os.Getenv("DATABASE_URL"),
+		GitHubClientID:       os.Getenv("GITHUB_CLIENT_ID"),
+		GitHubClientSecret:   os.Getenv("GITHUB_CLIENT_SECRET"),
+		GitHubRedirectURL:    os.Getenv("GITHUB_REDIRECT_URL"),
+		PostLoginRedirectURL: os.Getenv("POST_LOGIN_REDIRECT_URL"),
+		Port:                 os.Getenv("PORT"),
 	}
 
 	if cfg.Port == "" {
@@ -96,9 +98,10 @@ func main() {
 	roomRepo := catalogrepo.NewPostgresRoomRepo(pool)
 
 	oauthCfg := authservice.OAuthConfig{
-		ClientID:     cfg.GitHubClientID,
-		ClientSecret: cfg.GitHubClientSecret,
-		RedirectURL:  cfg.GitHubRedirectURL,
+		ClientID:             cfg.GitHubClientID,
+		ClientSecret:         cfg.GitHubClientSecret,
+		RedirectURL:          cfg.GitHubRedirectURL,
+		PostLoginRedirectURL: cfg.PostLoginRedirectURL,
 	}
 
 	githubClient := authservice.NewRealGitHubClient(http.DefaultClient, oauthCfg)
@@ -109,7 +112,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.Handle("GET /auth/github/login", authtransport.HandleGitHubLogin(oauthCfg))
-	mux.Handle("GET /auth/github/callback", authtransport.HandleGitHubCallback(authSvc))
+	mux.Handle("GET /auth/github/callback", authtransport.HandleGitHubCallback(authSvc, oauthCfg))
 	mux.Handle("POST /auth/logout", authtransport.HandleLogout(authSvc))
 	mux.Handle("POST /graphql", authtransport.SessionMiddleware(authSvc)(gqlSrv))
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {

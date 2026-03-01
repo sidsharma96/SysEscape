@@ -66,3 +66,23 @@ export const ROOM_BY_SLUG_QUERY = gql`
     }
   }
 `;
+
+export interface Viewer {
+  userId: string;
+  role: string;
+  githubUsername: string | null;
+}
+
+export interface ViewerQueryResult {
+  viewer: Viewer | null;
+}
+
+export const VIEWER_QUERY = gql`
+  query Viewer {
+    viewer {
+      userId
+      role
+      githubUsername
+    }
+  }
+`;
