@@ -16,11 +16,6 @@ When an agent makes a mistake:
 
 ## Entries
 
-1. _[Template]_ Agent tried to `curl` an external URL during build → Network egress is
-   denied by default. Use `make` targets for all fetches.
+1. AGENTS.md references module docs that don't exist yet. Agents should not create them opportunistically; only create when doing substantial first-time work on that module.
 
-2. _[Template]_ Agent put WS connection setup in a component body → Move to
-   `hooks/use-ws.ts`. Components consume state via hooks, not raw sockets.
-
-3. _[Template]_ Agent hand-wrote GraphQL response types → Run `make ui-codegen` to
-   regenerate from schema. Delete hand-written types.
+2. Agent added whole path of file in the scope of change in PR description. Agents should only add the path relative to the project like 'SysEscape/internal/auth/service/auth_service.go' instead of starting with 'Users/siddharthsharma/...'
