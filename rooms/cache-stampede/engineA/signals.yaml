@@ -1,0 +1,12 @@
+metrics:
+  - request_latency
+  - db_connections
+  - cache_hit_rate
+  - error_rate
+logPatterns:
+  - "cache miss burst"
+  - "db pool exhausted"
+traceSpans:
+  - "GET /api/items"
+  - "cache.lookup"
+  - "db.query"

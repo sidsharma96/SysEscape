@@ -83,3 +83,21 @@ see `docs/AGENTS/conventions.md`.
 ## Common Mistakes
 
 Track at: `docs/AGENTS/common-mistakes.md`. Add an entry after every agent failure.
+
+## PR Evidence Block
+
+Use this exact block in every PR description:
+
+```md
+## Evidence
+- Goal: <PR goal from Section 4>
+- Scope (modules/files): <list from scope fence>
+- Commands run:
+  - make lint: PASS/FAIL (runtime: ___)
+  - make test-unit: PASS/FAIL (runtime: ___)
+  - make test-integration: PASS/FAIL (runtime: ___)
+  - make ci: PASS/FAIL (runtime: ___)
+- Proof artifacts: <test output snippet>
+- Risk notes: <migrations / compat / security>
+- Rollback: <how to revert>
+```

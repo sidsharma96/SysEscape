@@ -1,0 +1,14 @@
+slug: cache-stampede
+title: Cache Stampede
+district: distributed-systems
+difficulty: L1
+engine: A
+description: |
+  A thundering herd of requests overwhelms the database when the cache expires.
+  Diagnose the stampede and apply fixes to restore service health.
+estimatedMinutes: 15
+tags:
+  - caching
+  - thundering-herd
+  - database
+  - performance

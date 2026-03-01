@@ -1,0 +1,9 @@
+actions:
+  - key: enable_singleflight
+    description: Coalesce concurrent cache misses per key.
+  - key: add_jitter_to_ttl
+    description: Spread expirations to avoid synchronized misses.
+  - key: enable_stale_while_revalidate
+    description: Serve stale cache while refreshing in background.
+  - key: increase_cache_ttl
+    description: Extend cache TTL to reduce database pressure.
