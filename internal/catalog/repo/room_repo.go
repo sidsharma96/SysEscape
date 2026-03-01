@@ -39,7 +39,7 @@ func NewPostgresRoomRepo(d db.DBTX) *PostgresRoomRepo {
 const baseQuery = `
 	SELECT
 		r.id, r.slug, r.title, r.district, r.engine, r.difficulty, r.description,
-		r.created_at, r.updated_at,
+		r.created_at, r.updated_at, r.active_room_version_id,
 		v.id, v.room_id, v.version_number, v.status, v.bundle_hash, v.changelog, v.published_at
 	FROM rooms r
 	LEFT JOIN room_versions v ON v.room_id = r.id
@@ -115,6 +115,7 @@ func (r *PostgresRoomRepo) GetBySlug(ctx context.Context, slug string) (*models.
 
 func scanRoomWithVersion(rows pgx.Rows) (models.RoomWithLatestVersion, error) {
 	var rw models.RoomWithLatestVersion
+	var activeRoomVersionID *uuid.UUID
 	var vID *uuid.UUID
 	var vRoomID *uuid.UUID
 	var vNum *int
@@ -125,12 +126,14 @@ func scanRoomWithVersion(rows pgx.Rows) (models.RoomWithLatestVersion, error) {
 
 	err := rows.Scan(
 		&rw.ID, &rw.Slug, &rw.Title, &rw.District, &rw.Engine, &rw.Difficulty, &rw.Description,
-		&rw.CreatedAt, &rw.UpdatedAt,
+		&rw.CreatedAt, &rw.UpdatedAt, &activeRoomVersionID,
 		&vID, &vRoomID, &vNum, &vStatus, &vBundleHash, &vChangelog, &vPublishedAt,
 	)
 	if err != nil {
 		return rw, err
 	}
+
+	rw.ActiveRoomVersionID = activeRoomVersionID
 
 	if vID != nil {
 		rw.LatestVersion = &models.RoomVersion{

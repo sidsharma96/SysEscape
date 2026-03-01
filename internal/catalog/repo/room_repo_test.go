@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/sidsharma96/SysEscape/internal/catalog/repo"
 	"github.com/sidsharma96/SysEscape/internal/testutil"
 )
@@ -195,5 +196,85 @@ func TestPostgresRoomRepo_GetBySlug_NotFound(t *testing.T) {
 	}
 	if room != nil {
 		t.Errorf("expected nil for nonexistent slug, got %+v", room)
+	}
+}
+
+func TestRoomRepo_ScanIncludesActiveVersionID(t *testing.T) {
+	pool := testutil.TestPool(t)
+	tx := testutil.TxForTest(t, pool)
+	r := repo.NewPostgresRoomRepo(tx)
+
+	ctx := context.Background()
+
+	var roomID uuid.UUID
+	err := tx.QueryRow(ctx, `
+		INSERT INTO rooms (slug, title, district, engine, difficulty, description)
+		VALUES ('active-version-room', 'Active Version Room', 'Test District', 'A', 'L1', 'Room with active version')
+		RETURNING id`,
+	).Scan(&roomID)
+	if err != nil {
+		t.Fatalf("inserting room: %v", err)
+	}
+
+	var versionID uuid.UUID
+	err = tx.QueryRow(ctx, `
+		INSERT INTO room_versions (room_id, version_number, status, changelog)
+		VALUES ($1, 1, 'PUBLISHED', 'Initial release')
+		RETURNING id`,
+		roomID,
+	).Scan(&versionID)
+	if err != nil {
+		t.Fatalf("inserting room version: %v", err)
+	}
+
+	_, err = tx.Exec(ctx, `
+		UPDATE rooms
+		SET active_room_version_id = $1
+		WHERE id = $2`,
+		versionID, roomID,
+	)
+	if err != nil {
+		t.Fatalf("updating active_room_version_id: %v", err)
+	}
+
+	room, err := r.GetBySlug(ctx, "active-version-room")
+	if err != nil {
+		t.Fatalf("GetBySlug() error = %v", err)
+	}
+	if room == nil {
+		t.Fatal("expected room, got nil")
+	}
+	if room.ActiveRoomVersionID == nil {
+		t.Fatal("expected ActiveRoomVersionID, got nil")
+	}
+	if *room.ActiveRoomVersionID != versionID {
+		t.Fatalf("ActiveRoomVersionID = %v, want %v", *room.ActiveRoomVersionID, versionID)
+	}
+}
+
+func TestRoomRepo_NullActiveVersionID(t *testing.T) {
+	pool := testutil.TestPool(t)
+	tx := testutil.TxForTest(t, pool)
+	r := repo.NewPostgresRoomRepo(tx)
+
+	ctx := context.Background()
+
+	_, err := tx.Exec(ctx, `
+		INSERT INTO rooms (slug, title, district, engine, difficulty, description)
+		VALUES ('null-active-version-room', 'Null Active Version Room', 'Test District', 'A', 'L0', 'Room without active version')`,
+	)
+	if err != nil {
+		t.Fatalf("inserting room: %v", err)
+	}
+
+	room, err := r.GetBySlug(ctx, "null-active-version-room")
+	if err != nil {
+		t.Fatalf("GetBySlug() error = %v", err)
+	}
+	if room == nil {
+		t.Fatal("expected room, got nil")
+	}
+	if room.ActiveRoomVersionID != nil {
+		t.Fatalf("expected nil ActiveRoomVersionID, got %v", *room.ActiveRoomVersionID)
 	}
 }
