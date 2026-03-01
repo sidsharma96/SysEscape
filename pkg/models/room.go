@@ -15,6 +15,7 @@ type Room struct {
 	Engine      string // "A" or "B"
 	Difficulty  string // "L0", "L1", "L2", "L3"
 	Description string
+	ActiveRoomVersionID *uuid.UUID
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 }
