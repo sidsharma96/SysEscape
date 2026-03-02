@@ -9,7 +9,7 @@
         run-graphql run-engine-a run-engine-b run-judge-dispatcher \
         run-bundle-proxy run-artifact-proxy run-all \
         migrate-up migrate-down migrate-create \
-        roomctl-validate roomctl-build \
+        roomctl-validate roomctl-build smoke-m2 \
         ui-install ui-dev ui-lint ui-test ui-build ui-codegen ui-fmt \
         help
 
@@ -173,6 +173,42 @@ else
 	$(GO) run ./cmd/roomctl build --all
 endif
 	@echo "Room bundles built."
+
+smoke-m2: ## End-to-end smoke for M2 roomctl publish (requires infra + BFF running)
+	@set -e; \
+	ADMIN_KEY="$${SER_ADMIN_API_KEY:-$${ADMIN_API_KEY:-}}"; \
+	if [ -z "$$ADMIN_KEY" ]; then \
+		echo "SER_ADMIN_API_KEY or ADMIN_API_KEY is required"; \
+		exit 1; \
+	fi; \
+	DB_URL="$${DATABASE_URL:-postgres://ser:ser@localhost:5432/ser?sslmode=disable}"; \
+	$(MAKE) migrate-up; \
+	psql "$$DB_URL" -v ON_ERROR_STOP=1 -c "INSERT INTO rooms (slug, title, district, engine, difficulty, description) VALUES ('cache-stampede', 'Cache Stampede', 'distributed-systems', 'A', 'L1', 'smoke room') ON CONFLICT (slug) DO NOTHING;"; \
+	psql "$$DB_URL" -v ON_ERROR_STOP=1 -c "UPDATE rooms SET active_room_version_id = NULL WHERE slug = 'cache-stampede'; DELETE FROM room_versions WHERE room_id = (SELECT id FROM rooms WHERE slug = 'cache-stampede');"; \
+	$(GO) run ./cmd/roomctl publish --room rooms/cache-stampede --version 1 --activate --bff-url "$${SER_BFF_URL:-http://localhost:8080/graphql}" --s3-endpoint "$${S3_ENDPOINT:-http://localhost:9000}" --s3-bucket "$${S3_BUCKET:-ser-bundles}" --s3-access-key "$${S3_ACCESS_KEY:-minioadmin}" --s3-secret-key "$${S3_SECRET_KEY:-minioadmin}" --admin-api-key "$$ADMIN_KEY"; \
+	ROW=$$(psql "$$DB_URL" -At -F '|' -c "SELECT rv.id, rv.version_number, rv.status, COALESCE(rv.bundle_hash, '') FROM room_versions rv JOIN rooms r ON r.id = rv.room_id WHERE r.slug = 'cache-stampede' ORDER BY rv.version_number DESC LIMIT 1;"); \
+	if [ -z "$$ROW" ]; then \
+		echo "No room_versions row found after publish"; \
+		exit 1; \
+	fi; \
+	RV_ID=$$(echo "$$ROW" | cut -d'|' -f1); \
+	RV_VERSION=$$(echo "$$ROW" | cut -d'|' -f2); \
+	RV_STATUS=$$(echo "$$ROW" | cut -d'|' -f3); \
+	HASH=$$(echo "$$ROW" | cut -d'|' -f4); \
+	if [ "$$RV_VERSION" != "1" ] || [ "$$RV_STATUS" != "PUBLISHED" ] || [ -z "$$HASH" ]; then \
+		echo "Unexpected room_versions row: $$ROW"; \
+		exit 1; \
+	fi; \
+	ACTIVE_ID=$$(psql "$$DB_URL" -At -c "SELECT COALESCE(active_room_version_id::text, '') FROM rooms WHERE slug = 'cache-stampede';"); \
+	if [ "$$ACTIVE_ID" != "$$RV_ID" ]; then \
+		echo "active_room_version_id mismatch: got '$$ACTIVE_ID' want '$$RV_ID'"; \
+		exit 1; \
+	fi; \
+	MC_ENDPOINT=$${S3_ENDPOINT:-http://localhost:9000}; \
+	MC_ENDPOINT=$$(echo "$$MC_ENDPOINT" | sed 's#://localhost:#://host.docker.internal:#'); \
+	MC_HOST=$$(echo "$$MC_ENDPOINT" | sed "s#^http://#http://$${S3_ACCESS_KEY:-minioadmin}:$${S3_SECRET_KEY:-minioadmin}@#;s#^https://#https://$${S3_ACCESS_KEY:-minioadmin}:$${S3_SECRET_KEY:-minioadmin}@#"); \
+	docker run --rm --add-host host.docker.internal:host-gateway -e MC_HOST_local="$$MC_HOST" minio/mc stat "local/$${S3_BUCKET:-ser-bundles}/bundles/$$HASH.tar" >/dev/null; \
+	echo "smoke-m2 passed"
 
 # ── Web UI (web/) ──────────────────────────────────────────────────────
 ui-install: ## Install web UI dependencies (pnpm install)
