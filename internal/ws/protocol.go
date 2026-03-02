@@ -69,42 +69,52 @@ func ValidateClientEnvelope(env Envelope) error {
 	case TypePong:
 		return nil
 	case TypeHello:
-		if env.ProtocolVersion != ProtocolVersion1 {
-			return fmt.Errorf("%w: unsupported protocol version", ErrInvalidEnvelope)
-		}
-		if strings.TrimSpace(env.RunID) == "" {
-			return fmt.Errorf("%w: missing runId", ErrInvalidEnvelope)
-		}
-		payload, err := DecodeHelloPayload(env.Payload)
-		if err != nil {
-			return err
-		}
-		if strings.TrimSpace(payload.RunToken) == "" {
-			return fmt.Errorf("%w: missing runToken", ErrInvalidEnvelope)
-		}
-		return nil
+		_, err := ValidateAndDecodeHello(env)
+		return err
 	case TypeApplyAction:
-		if env.ProtocolVersion != ProtocolVersion1 {
-			return fmt.Errorf("%w: unsupported protocol version", ErrInvalidEnvelope)
-		}
-		if strings.TrimSpace(env.RunID) == "" {
-			return fmt.Errorf("%w: missing runId", ErrInvalidEnvelope)
-		}
-		payload, err := DecodeApplyActionPayload(env.Payload)
-		if err != nil {
-			return err
-		}
-		if strings.TrimSpace(payload.ActionKey) == "" {
-			return fmt.Errorf("%w: missing actionKey", ErrInvalidEnvelope)
-		}
-		clientRequestID, err := uuid.Parse(payload.ClientRequestID)
-		if err != nil || clientRequestID.Version() != 4 {
-			return fmt.Errorf("%w: clientRequestId must be uuid v4", ErrInvalidEnvelope)
-		}
-		return nil
+		_, err := ValidateAndDecodeApplyAction(env)
+		return err
 	default:
 		return fmt.Errorf("%w: unsupported client message type %q", ErrInvalidEnvelope, env.Type)
 	}
+}
+
+func ValidateAndDecodeHello(env Envelope) (HelloPayload, error) {
+	if env.ProtocolVersion != ProtocolVersion1 {
+		return HelloPayload{}, fmt.Errorf("%w: unsupported protocol version", ErrInvalidEnvelope)
+	}
+	if strings.TrimSpace(env.RunID) == "" {
+		return HelloPayload{}, fmt.Errorf("%w: missing runId", ErrInvalidEnvelope)
+	}
+	payload, err := DecodeHelloPayload(env.Payload)
+	if err != nil {
+		return HelloPayload{}, err
+	}
+	if strings.TrimSpace(payload.RunToken) == "" {
+		return HelloPayload{}, fmt.Errorf("%w: missing runToken", ErrInvalidEnvelope)
+	}
+	return payload, nil
+}
+
+func ValidateAndDecodeApplyAction(env Envelope) (ApplyActionPayload, error) {
+	if env.ProtocolVersion != ProtocolVersion1 {
+		return ApplyActionPayload{}, fmt.Errorf("%w: unsupported protocol version", ErrInvalidEnvelope)
+	}
+	if strings.TrimSpace(env.RunID) == "" {
+		return ApplyActionPayload{}, fmt.Errorf("%w: missing runId", ErrInvalidEnvelope)
+	}
+	payload, err := DecodeApplyActionPayload(env.Payload)
+	if err != nil {
+		return ApplyActionPayload{}, err
+	}
+	if strings.TrimSpace(payload.ActionKey) == "" {
+		return ApplyActionPayload{}, fmt.Errorf("%w: missing actionKey", ErrInvalidEnvelope)
+	}
+	clientRequestID, err := uuid.Parse(payload.ClientRequestID)
+	if err != nil || clientRequestID.Version() != 4 {
+		return ApplyActionPayload{}, fmt.Errorf("%w: clientRequestId must be uuid v4", ErrInvalidEnvelope)
+	}
+	return payload, nil
 }
 
 func DecodeHelloPayload(raw json.RawMessage) (HelloPayload, error) {
