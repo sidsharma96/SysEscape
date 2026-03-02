@@ -1,0 +1,26 @@
+simulation:
+  tick_interval_ms: 1000
+  duration_ticks: 300
+  events:
+    - at_tick: 0
+      description: "Cache TTLs begin expiring simultaneously"
+      effects:
+        - { metric: cache_hit_rate, target: 0.30, rate: 0.05 }
+        - { metric: db_connections, target: 180, rate: 3 }
+        - { metric: error_rate, target: 0.15, rate: 0.008 }
+  action_effects:
+    enable_singleflight:
+      effects:
+        - { metric: db_connections, target: 40, rate: 2 }
+        - { metric: cache_hit_rate, target: 0.85, rate: 0.03 }
+    add_jitter_to_ttl:
+      effects:
+        - { metric: cache_hit_rate, target: 0.93, rate: 0.02 }
+    enable_stale_while_revalidate:
+      effects:
+        - { metric: error_rate, target: 0.005, rate: 0.01 }
+        - { metric: request_latency_ms, target: 50, rate: 1.5 }
+    increase_cache_ttl:
+      effects:
+        - { metric: cache_hit_rate, target: 0.97, rate: 0.01 }
+        - { metric: db_connections, target: 25, rate: 1 }
