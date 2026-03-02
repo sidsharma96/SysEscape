@@ -203,8 +203,9 @@ From ADR-009 and ARCHITECTURE.md §3.4:
 - All player-facing mutations use `clientRequestId` (UUID v4)
 - `apply_action` WS messages include `clientRequestId`
 - Same action with same `clientRequestId` must be a no-op (not double-applied)
-- The `idempotency_keys` table exists in Postgres for HTTP mutations, but WS action
-  deduplication may use an in-memory set per run (actions are per-session, not cross-session)
+- WS action dedup for player actions should be enforced in `run_actions` with a partial
+  unique index on `(run_id, client_request_id)` where `client_request_id IS NOT NULL`.
+- Virtual tick entries intentionally have `client_request_id = NULL` and are excluded from dedup.
 
 ### 2.6 Resume Model: Ring Buffer of Recent Deltas
 
@@ -458,8 +459,9 @@ type RunAction struct {
     ID              uuid.UUID
     RunID           uuid.UUID
     Seq             int
-    ActionKey       string
-    ClientRequestID string
+    ActionType      string     // "player" or "tick"
+    ActionKey       *string    // nil for ticks
+    ClientRequestID *string    // nil for ticks
     AppliedAt       time.Time
 }
 ```
@@ -489,12 +491,21 @@ CREATE TABLE run_actions (
     id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     run_id            UUID NOT NULL REFERENCES runs(id),
     seq               INT NOT NULL,
-    action_key        TEXT NOT NULL,
-    client_request_id TEXT NOT NULL,
+    action_type       TEXT NOT NULL DEFAULT 'player'
+                      CHECK (action_type IN ('player','tick')),
+    action_key        TEXT,
+    client_request_id TEXT,
     applied_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (run_id, seq),
-    UNIQUE (run_id, client_request_id)
+    CHECK (
+      (action_type = 'player' AND action_key IS NOT NULL AND client_request_id IS NOT NULL) OR
+      (action_type = 'tick'   AND action_key IS NULL     AND client_request_id IS NULL)
+    )
 );
+
+CREATE UNIQUE INDEX idx_run_actions_dedup
+  ON run_actions(run_id, client_request_id)
+  WHERE client_request_id IS NOT NULL;
 
 CREATE INDEX idx_run_actions_run_id ON run_actions(run_id);
 ```
@@ -503,8 +514,9 @@ CREATE INDEX idx_run_actions_run_id ON run_actions(run_id);
 - `idx_runs_user_id_started_at` — covers "show my recent runs" queries (run history page).
   Composite `(user_id, started_at)` per TDD §6.2. Add now while the table is empty.
 - `idx_run_actions_run_id` — covers "replay all actions for this run" query that Engine A
-  hits on every WS connect (reconnect rebuilds state from action log). The UNIQUE constraints
-  on `(run_id, seq)` and `(run_id, client_request_id)` help point lookups but not a
+  hits on every WS connect (reconnect rebuilds state from action log). The UNIQUE constraint
+  on `(run_id, seq)` and partial dedup index on `(run_id, client_request_id)` (non-null only)
+  help point lookups but not a
   bare `WHERE run_id = $1 ORDER BY seq` scan.
 
 ### 5.2 New or Modified Modules

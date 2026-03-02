@@ -106,7 +106,10 @@ Scope fence:
 
 Acceptance criteria:
 - Migration adds `runs` and `run_actions` with constraints and indexes from research §5.1.
-- `run_actions` schema supports both player actions and virtual tick entries (`type=tick`) with nullable `clientRequestId` for ticks.
+- `run_actions` schema explicitly supports both player and tick entries:
+  - `action_type` in (`player`, `tick`)
+  - nullable `action_key` / `client_request_id` for ticks
+  - partial unique dedup index on `(run_id, client_request_id)` where `client_request_id IS NOT NULL`
 - `pkg/models` includes `Run`, `RunStatus`, `RunAction`.
 - Repo tests pass against Postgres and cover idempotency+ordering invariants.
 
