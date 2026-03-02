@@ -9,6 +9,22 @@ import (
 	"strconv"
 )
 
+type Mutation struct {
+}
+
+type PublishRoomVersionInput struct {
+	ClientRequestID  string `json:"clientRequestId"`
+	RoomSlug         string `json:"roomSlug"`
+	Version          int    `json:"version"`
+	Changelog        string `json:"changelog"`
+	BundleHashSha256 string `json:"bundleHashSha256"`
+	Activate         bool   `json:"activate"`
+}
+
+type PublishRoomVersionPayload struct {
+	RoomVersion *RoomVersion `json:"roomVersion"`
+}
+
 type Query struct {
 }
 

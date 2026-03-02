@@ -4,6 +4,23 @@ type Query {
   roomBySlug(slug: String!): Room
 }
 
+input PublishRoomVersionInput {
+  clientRequestId: ID!
+  roomSlug: String!
+  version: Int!
+  changelog: String!
+  bundleHashSha256: String!
+  activate: Boolean!
+}
+
+type PublishRoomVersionPayload {
+  roomVersion: RoomVersion!
+}
+
+type Mutation {
+  publishRoomVersion(input: PublishRoomVersionInput!): PublishRoomVersionPayload!
+}
+
 type Viewer {
   userId: ID!
   role: String!

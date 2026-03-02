@@ -37,6 +37,7 @@ type Config struct {
 }
 
 type ResolverRoot interface {
+	Mutation() MutationResolver
 	Query() QueryResolver
 }
 
@@ -44,6 +45,14 @@ type DirectiveRoot struct {
 }
 
 type ComplexityRoot struct {
+	Mutation struct {
+		PublishRoomVersion func(childComplexity int, input PublishRoomVersionInput) int
+	}
+
+	PublishRoomVersionPayload struct {
+		RoomVersion func(childComplexity int) int
+	}
+
 	Query struct {
 		RoomBySlug func(childComplexity int, slug string) int
 		Rooms      func(childComplexity int, engine *RoomEngine, difficulty *RoomDifficulty, district *string) int
@@ -76,6 +85,9 @@ type ComplexityRoot struct {
 	}
 }
 
+type MutationResolver interface {
+	PublishRoomVersion(ctx context.Context, input PublishRoomVersionInput) (*PublishRoomVersionPayload, error)
+}
 type QueryResolver interface {
 	Viewer(ctx context.Context) (*Viewer, error)
 	Rooms(ctx context.Context, engine *RoomEngine, difficulty *RoomDifficulty, district *string) ([]*Room, error)
@@ -100,6 +112,25 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 	ec := executionContext{nil, e, 0, 0, nil}
 	_ = ec
 	switch typeName + "." + field {
+
+	case "Mutation.publishRoomVersion":
+		if e.complexity.Mutation.PublishRoomVersion == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_publishRoomVersion_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Mutation.PublishRoomVersion(childComplexity, args["input"].(PublishRoomVersionInput)), true
+
+	case "PublishRoomVersionPayload.roomVersion":
+		if e.complexity.PublishRoomVersionPayload.RoomVersion == nil {
+			break
+		}
+
+		return e.complexity.PublishRoomVersionPayload.RoomVersion(childComplexity), true
 
 	case "Query.roomBySlug":
 		if e.complexity.Query.RoomBySlug == nil {
@@ -236,7 +267,9 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 	opCtx := graphql.GetOperationContext(ctx)
 	ec := executionContext{opCtx, e, 0, 0, make(chan graphql.DeferredResult)}
-	inputUnmarshalMap := graphql.BuildUnmarshalerMap()
+	inputUnmarshalMap := graphql.BuildUnmarshalerMap(
+		ec.unmarshalInputPublishRoomVersionInput,
+	)
 	first := true
 
 	switch opCtx.Operation.Operation {
@@ -269,6 +302,21 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 			}
 
 			return &response
+		}
+	case ast.Mutation:
+		return func(ctx context.Context) *graphql.Response {
+			if !first {
+				return nil
+			}
+			first = false
+			ctx = graphql.WithUnmarshalerMap(ctx, inputUnmarshalMap)
+			data := ec._Mutation(ctx, opCtx.Operation.SelectionSet)
+			var buf bytes.Buffer
+			data.MarshalGQL(&buf)
+
+			return &graphql.Response{
+				Data: buf.Bytes(),
+			}
 		}
 
 	default:
@@ -324,6 +372,23 @@ var sources = []*ast.Source{
   roomBySlug(slug: String!): Room
 }
 
+input PublishRoomVersionInput {
+  clientRequestId: ID!
+  roomSlug: String!
+  version: Int!
+  changelog: String!
+  bundleHashSha256: String!
+  activate: Boolean!
+}
+
+type PublishRoomVersionPayload {
+  roomVersion: RoomVersion!
+}
+
+type Mutation {
+  publishRoomVersion(input: PublishRoomVersionInput!): PublishRoomVersionPayload!
+}
+
 type Viewer {
   userId: ID!
   role: String!
@@ -359,6 +424,17 @@ var parsedSchema = gqlparser.MustLoadSchema(sources...)
 // endregion ************************** generated!.gotpl **************************
 
 // region    ***************************** args.gotpl *****************************
+
+func (ec *executionContext) field_Mutation_publishRoomVersion_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "input", ec.unmarshalNPublishRoomVersionInput2githubᚗcomᚋsidsharma96ᚋSysEscapeᚋinternalᚋgraphqlᚋgeneratedᚐPublishRoomVersionInput)
+	if err != nil {
+		return nil, err
+	}
+	args["input"] = arg0
+	return args, nil
+}
 
 func (ec *executionContext) field_Query___type_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
@@ -454,6 +530,92 @@ func (ec *executionContext) field___Type_fields_args(ctx context.Context, rawArg
 // endregion ************************** directives.gotpl **************************
 
 // region    **************************** field.gotpl *****************************
+
+func (ec *executionContext) _Mutation_publishRoomVersion(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_Mutation_publishRoomVersion,
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.resolvers.Mutation().PublishRoomVersion(ctx, fc.Args["input"].(PublishRoomVersionInput))
+		},
+		nil,
+		ec.marshalNPublishRoomVersionPayload2ᚖgithubᚗcomᚋsidsharma96ᚋSysEscapeᚋinternalᚋgraphqlᚋgeneratedᚐPublishRoomVersionPayload,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_Mutation_publishRoomVersion(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "roomVersion":
+				return ec.fieldContext_PublishRoomVersionPayload_roomVersion(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type PublishRoomVersionPayload", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_publishRoomVersion_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _PublishRoomVersionPayload_roomVersion(ctx context.Context, field graphql.CollectedField, obj *PublishRoomVersionPayload) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		ec.fieldContext_PublishRoomVersionPayload_roomVersion,
+		func(ctx context.Context) (any, error) {
+			return obj.RoomVersion, nil
+		},
+		nil,
+		ec.marshalNRoomVersion2ᚖgithubᚗcomᚋsidsharma96ᚋSysEscapeᚋinternalᚋgraphqlᚋgeneratedᚐRoomVersion,
+		true,
+		true,
+	)
+}
+
+func (ec *executionContext) fieldContext_PublishRoomVersionPayload_roomVersion(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "PublishRoomVersionPayload",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_RoomVersion_id(ctx, field)
+			case "versionNumber":
+				return ec.fieldContext_RoomVersion_versionNumber(ctx, field)
+			case "status":
+				return ec.fieldContext_RoomVersion_status(ctx, field)
+			case "changelog":
+				return ec.fieldContext_RoomVersion_changelog(ctx, field)
+			case "publishedAt":
+				return ec.fieldContext_RoomVersion_publishedAt(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type RoomVersion", field.Name)
+		},
+	}
+	return fc, nil
+}
 
 func (ec *executionContext) _Query_viewer(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
@@ -2640,6 +2802,68 @@ func (ec *executionContext) fieldContext___Type_isOneOf(_ context.Context, field
 
 // region    **************************** input.gotpl *****************************
 
+func (ec *executionContext) unmarshalInputPublishRoomVersionInput(ctx context.Context, obj any) (PublishRoomVersionInput, error) {
+	var it PublishRoomVersionInput
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"clientRequestId", "roomSlug", "version", "changelog", "bundleHashSha256", "activate"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "clientRequestId":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("clientRequestId"))
+			data, err := ec.unmarshalNID2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.ClientRequestID = data
+		case "roomSlug":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("roomSlug"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.RoomSlug = data
+		case "version":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("version"))
+			data, err := ec.unmarshalNInt2int(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Version = data
+		case "changelog":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("changelog"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Changelog = data
+		case "bundleHashSha256":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("bundleHashSha256"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.BundleHashSha256 = data
+		case "activate":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("activate"))
+			data, err := ec.unmarshalNBoolean2bool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Activate = data
+		}
+	}
+
+	return it, nil
+}
+
 // endregion **************************** input.gotpl *****************************
 
 // region    ************************** interface.gotpl ***************************
@@ -2647,6 +2871,94 @@ func (ec *executionContext) fieldContext___Type_isOneOf(_ context.Context, field
 // endregion ************************** interface.gotpl ***************************
 
 // region    **************************** object.gotpl ****************************
+
+var mutationImplementors = []string{"Mutation"}
+
+func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, mutationImplementors)
+	ctx = graphql.WithFieldContext(ctx, &graphql.FieldContext{
+		Object: "Mutation",
+	})
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		innerCtx := graphql.WithRootFieldContext(ctx, &graphql.RootFieldContext{
+			Object: field.Name,
+			Field:  field,
+		})
+
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("Mutation")
+		case "publishRoomVersion":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_publishRoomVersion(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
+
+var publishRoomVersionPayloadImplementors = []string{"PublishRoomVersionPayload"}
+
+func (ec *executionContext) _PublishRoomVersionPayload(ctx context.Context, sel ast.SelectionSet, obj *PublishRoomVersionPayload) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, publishRoomVersionPayloadImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferred := make(map[string]*graphql.FieldSet)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("PublishRoomVersionPayload")
+		case "roomVersion":
+			out.Values[i] = ec._PublishRoomVersionPayload_roomVersion(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.deferred, int32(len(deferred)))
+
+	for label, dfs := range deferred {
+		ec.processDeferredGroup(graphql.DeferredGroup{
+			Label:    label,
+			Path:     graphql.GetPath(ctx),
+			FieldSet: dfs,
+			Context:  ctx,
+		})
+	}
+
+	return out
+}
 
 var queryImplementors = []string{"Query"}
 
@@ -3317,6 +3629,25 @@ func (ec *executionContext) marshalNInt2int(ctx context.Context, sel ast.Selecti
 	return res
 }
 
+func (ec *executionContext) unmarshalNPublishRoomVersionInput2githubᚗcomᚋsidsharma96ᚋSysEscapeᚋinternalᚋgraphqlᚋgeneratedᚐPublishRoomVersionInput(ctx context.Context, v any) (PublishRoomVersionInput, error) {
+	res, err := ec.unmarshalInputPublishRoomVersionInput(ctx, v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNPublishRoomVersionPayload2githubᚗcomᚋsidsharma96ᚋSysEscapeᚋinternalᚋgraphqlᚋgeneratedᚐPublishRoomVersionPayload(ctx context.Context, sel ast.SelectionSet, v PublishRoomVersionPayload) graphql.Marshaler {
+	return ec._PublishRoomVersionPayload(ctx, sel, &v)
+}
+
+func (ec *executionContext) marshalNPublishRoomVersionPayload2ᚖgithubᚗcomᚋsidsharma96ᚋSysEscapeᚋinternalᚋgraphqlᚋgeneratedᚐPublishRoomVersionPayload(ctx context.Context, sel ast.SelectionSet, v *PublishRoomVersionPayload) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._PublishRoomVersionPayload(ctx, sel, v)
+}
+
 func (ec *executionContext) marshalNRoom2ᚕᚖgithubᚗcomᚋsidsharma96ᚋSysEscapeᚋinternalᚋgraphqlᚋgeneratedᚐRoomᚄ(ctx context.Context, sel ast.SelectionSet, v []*Room) graphql.Marshaler {
 	ret := make(graphql.Array, len(v))
 	var wg sync.WaitGroup
@@ -3389,6 +3720,16 @@ func (ec *executionContext) unmarshalNRoomEngine2githubᚗcomᚋsidsharma96ᚋSy
 
 func (ec *executionContext) marshalNRoomEngine2githubᚗcomᚋsidsharma96ᚋSysEscapeᚋinternalᚋgraphqlᚋgeneratedᚐRoomEngine(ctx context.Context, sel ast.SelectionSet, v RoomEngine) graphql.Marshaler {
 	return v
+}
+
+func (ec *executionContext) marshalNRoomVersion2ᚖgithubᚗcomᚋsidsharma96ᚋSysEscapeᚋinternalᚋgraphqlᚋgeneratedᚐRoomVersion(ctx context.Context, sel ast.SelectionSet, v *RoomVersion) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._RoomVersion(ctx, sel, v)
 }
 
 func (ec *executionContext) unmarshalNRoomVersionStatus2githubᚗcomᚋsidsharma96ᚋSysEscapeᚋinternalᚋgraphqlᚋgeneratedᚐRoomVersionStatus(ctx context.Context, v any) (RoomVersionStatus, error) {

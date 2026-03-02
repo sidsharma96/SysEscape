@@ -4,7 +4,7 @@
 # Rule: if an agent needs to run a command, it MUST exist here.
 # ============================================================================
 
-.PHONY: ci lint test-unit test-integration test-e2e build fmt \
+.PHONY: ci lint test-unit test-integration test-e2e build fmt gqlgen \
         dev-up dev-down dev-reset dev-logs \
         run-graphql run-engine-a run-engine-b run-judge-dispatcher \
         run-bundle-proxy run-artifact-proxy run-all \
@@ -65,6 +65,9 @@ fmt: ## Auto-fix formatting
 		echo "gofumpt not installed. Install with:"; \
 		echo "  go install mvdan.cc/gofumpt@latest"; \
 	fi
+
+gqlgen: ## Regenerate GraphQL code from schema
+	$(GO) run github.com/99designs/gqlgen generate
 
 # ── Tests ──────────────────────────────────────────────────────────────────
 test-unit: ## Run unit tests (no external deps, <2 min target)
