@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -53,13 +54,24 @@ func ValidateRoomDir(roomDir string) error {
 		return err
 	}
 	if meta.Engine == "A" {
+		var actions ActionList
+		var simulation SimulationFile
 		for _, f := range []struct {
 			name string
 			dst  any
-		}{{"scenario.yaml", &Scenario{}}, {"actions.yaml", &ActionList{}}, {"signals.yaml", &Signals{}}, {"win_checks.yaml", &WinChecks{}}} {
+		}{
+			{"scenario.yaml", &Scenario{}},
+			{"actions.yaml", &actions},
+			{"signals.yaml", &Signals{}},
+			{"win_checks.yaml", &WinChecks{}},
+			{"simulation.yaml", &simulation},
+		} {
 			if err := parseYAML(filepath.Join(enginePath, f.name), f.dst); err != nil {
 				return fmt.Errorf("%s: %w", f.name, err)
 			}
+		}
+		if err := validateActionSimulationKeyMatch(actions, simulation); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -119,4 +131,44 @@ func allowed(v string, list ...string) bool {
 		}
 	}
 	return false
+}
+
+func validateActionSimulationKeyMatch(actions ActionList, simulation SimulationFile) error {
+	actionKeys := map[string]struct{}{}
+	for _, action := range actions.Actions {
+		key := strings.TrimSpace(action.Key)
+		if key == "" {
+			continue
+		}
+		actionKeys[key] = struct{}{}
+	}
+
+	simulationKeys := map[string]struct{}{}
+	for key := range simulation.Simulation.ActionEffects {
+		trimmed := strings.TrimSpace(key)
+		if trimmed == "" {
+			continue
+		}
+		simulationKeys[trimmed] = struct{}{}
+	}
+
+	missingInSimulation := []string{}
+	for key := range actionKeys {
+		if _, ok := simulationKeys[key]; !ok {
+			missingInSimulation = append(missingInSimulation, key)
+		}
+	}
+	missingInActions := []string{}
+	for key := range simulationKeys {
+		if _, ok := actionKeys[key]; !ok {
+			missingInActions = append(missingInActions, key)
+		}
+	}
+
+	if len(missingInSimulation) == 0 && len(missingInActions) == 0 {
+		return nil
+	}
+	sort.Strings(missingInSimulation)
+	sort.Strings(missingInActions)
+	return fmt.Errorf("action key mismatch: missing in simulation=%v missing in actions=%v", missingInSimulation, missingInActions)
 }

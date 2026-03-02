@@ -55,6 +55,27 @@ func TestValidate_MissingRequiredFields(t *testing.T) {
 	}
 }
 
+func TestValidate_MissingSimulationYAML(t *testing.T) {
+	r := setupRoom(t, "cache-stampede", validMeta("cache-stampede"), true)
+	if err := os.Remove(filepath.Join(r, "engineA", "simulation.yaml")); err != nil {
+		t.Fatalf("remove simulation.yaml: %v", err)
+	}
+	err := ValidateRoomDir(r)
+	if err == nil || !strings.Contains(err.Error(), "simulation.yaml") {
+		t.Fatalf("expected simulation.yaml error, got %v", err)
+	}
+}
+
+func TestValidate_ActionSimulationKeyMismatch(t *testing.T) {
+	r := setupRoom(t, "cache-stampede", validMeta("cache-stampede"), true)
+	mustWrite(t, filepath.Join(r, "engineA", "actions.yaml"), "actions:\n  - key: enable_singleflight\n  - key: add_jitter_to_ttl\n")
+	mustWrite(t, filepath.Join(r, "engineA", "simulation.yaml"), "simulation:\n  tick_interval_ms: 1000\n  duration_ticks: 300\n  events: []\n  action_effects:\n    enable_singleflight:\n      effects: []\n")
+	err := ValidateRoomDir(r)
+	if err == nil || !strings.Contains(err.Error(), "action key mismatch") {
+		t.Fatalf("expected action key mismatch error, got %v", err)
+	}
+}
+
 func setupRoom(t *testing.T, dirName, meta string, withEngine bool) string {
 	t.Helper()
 	r := filepath.Join(t.TempDir(), dirName)
@@ -69,6 +90,7 @@ func setupRoom(t *testing.T, dirName, meta string, withEngine bool) string {
 		mustWrite(t, filepath.Join(e, "actions.yaml"), "actions: []\n")
 		mustWrite(t, filepath.Join(e, "signals.yaml"), "metrics: []\n")
 		mustWrite(t, filepath.Join(e, "win_checks.yaml"), "checks: []\n")
+		mustWrite(t, filepath.Join(e, "simulation.yaml"), "simulation:\n  tick_interval_ms: 1000\n  duration_ticks: 300\n  events: []\n  action_effects: {}\n")
 	}
 	return r
 }

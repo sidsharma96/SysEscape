@@ -128,4 +128,5 @@ func writeEngineARoomForBuild(t *testing.T, roomDir string) {
 	mustWrite(t, filepath.Join(roomDir, "engineA", "actions.yaml"), "actions: []\n")
 	mustWrite(t, filepath.Join(roomDir, "engineA", "signals.yaml"), "metrics: []\n")
 	mustWrite(t, filepath.Join(roomDir, "engineA", "win_checks.yaml"), "checks: []\n")
+	mustWrite(t, filepath.Join(roomDir, "engineA", "simulation.yaml"), "simulation:\n  tick_interval_ms: 1000\n  duration_ticks: 300\n  events: []\n  action_effects: {}\n")
 }
