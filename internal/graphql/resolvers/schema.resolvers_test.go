@@ -2,6 +2,7 @@ package resolvers
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,12 +13,25 @@ import (
 	authtransport "github.com/sidsharma96/SysEscape/internal/auth/transport"
 	catalogrepo "github.com/sidsharma96/SysEscape/internal/catalog/repo"
 	"github.com/sidsharma96/SysEscape/internal/graphql/generated"
+	publishsvc "github.com/sidsharma96/SysEscape/internal/platform/publish"
 	"github.com/sidsharma96/SysEscape/pkg/models"
+	"github.com/vektah/gqlparser/v2/gqlerror"
 )
 
 type mockRoomRepo struct {
 	listFn      func(ctx context.Context, filter catalogrepo.RoomFilter) ([]models.RoomWithLatestVersion, error)
 	getBySlugFn func(ctx context.Context, slug string) (*models.RoomWithLatestVersion, error)
+}
+
+type mockPublishService struct {
+	publishFn func(ctx context.Context, input publishsvc.PublishInput) (*models.RoomVersion, error)
+}
+
+func (m *mockPublishService) Publish(ctx context.Context, input publishsvc.PublishInput) (*models.RoomVersion, error) {
+	if m.publishFn == nil {
+		return nil, errors.New("publishFn not set")
+	}
+	return m.publishFn(ctx, input)
 }
 
 func (m *mockRoomRepo) List(ctx context.Context, filter catalogrepo.RoomFilter) ([]models.RoomWithLatestVersion, error) {
@@ -231,5 +245,28 @@ func TestViewerResolver_Unauthenticated(t *testing.T) {
 	}
 	if got != nil {
 		t.Fatalf("Viewer() = %+v, want nil", got)
+	}
+}
+
+func TestPublishResolver_RejectsNonAdmin(t *testing.T) {
+	r := &Resolver{PublishService: &mockPublishService{}}
+	ctx := authtransport.ContextWithUser(context.Background(), &models.User{ID: uuid.New(), Role: "USER"})
+	_, err := r.Mutation().PublishRoomVersion(ctx, generated.PublishRoomVersionInput{
+		ClientRequestID:  "req",
+		RoomSlug:         "cache-stampede",
+		Version:          1,
+		Changelog:        "c",
+		BundleHashSha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		Activate:         false,
+	})
+	if err == nil {
+		t.Fatal("expected forbidden error")
+	}
+	var gqlErr *gqlerror.Error
+	if !errors.As(err, &gqlErr) {
+		t.Fatalf("error type = %T, want *gqlerror.Error", err)
+	}
+	if got, _ := gqlErr.Extensions["code"].(string); got != "FORBIDDEN" {
+		t.Fatalf("error code = %q, want FORBIDDEN", got)
 	}
 }

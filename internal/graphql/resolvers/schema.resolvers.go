@@ -7,14 +7,72 @@ package resolvers
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"time"
 
 	authtransport "github.com/sidsharma96/SysEscape/internal/auth/transport"
 	catalogrepo "github.com/sidsharma96/SysEscape/internal/catalog/repo"
 	"github.com/sidsharma96/SysEscape/internal/graphql/generated"
-	"github.com/sidsharma96/SysEscape/pkg/models"
+	publishsvc "github.com/sidsharma96/SysEscape/internal/platform/publish"
+	"github.com/vektah/gqlparser/v2/gqlerror"
 )
+
+// PublishRoomVersion is the resolver for the publishRoomVersion field.
+func (r *mutationResolver) PublishRoomVersion(ctx context.Context, input generated.PublishRoomVersionInput) (*generated.PublishRoomVersionPayload, error) {
+	user, ok := authtransport.UserFromContext(ctx)
+	if !ok || user.Role != "ADMIN" {
+		return nil, &gqlerror.Error{
+			Message: "forbidden",
+			Extensions: map[string]any{
+				"code": "FORBIDDEN",
+			},
+		}
+	}
+	if r.PublishService == nil {
+		return nil, fmt.Errorf("publish service is nil")
+	}
+
+	roomVersion, err := r.PublishService.Publish(ctx, publishsvc.PublishInput{
+		ClientRequestID:  input.ClientRequestID,
+		UserID:           user.ID,
+		RoomSlug:         input.RoomSlug,
+		Version:          input.Version,
+		Changelog:        input.Changelog,
+		BundleHashSha256: input.BundleHashSha256,
+		Activate:         input.Activate,
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, publishsvc.ErrIdempotencyConflict):
+			return nil, &gqlerror.Error{
+				Message: "idempotency conflict",
+				Extensions: map[string]any{
+					"code": "CONFLICT",
+				},
+			}
+		case errors.Is(err, publishsvc.ErrRequestInProgress):
+			return nil, &gqlerror.Error{
+				Message: "request in progress",
+				Extensions: map[string]any{
+					"code": "CONFLICT",
+				},
+			}
+		case errors.Is(err, publishsvc.ErrBundleNotFound):
+			return nil, &gqlerror.Error{
+				Message: "bundle not found in storage",
+				Extensions: map[string]any{
+					"code": "BUNDLE_NOT_FOUND",
+				},
+			}
+		default:
+			return nil, err
+		}
+	}
+
+	return &generated.PublishRoomVersionPayload{
+		RoomVersion: mapRoomVersion(roomVersion),
+	}, nil
+}
 
 // Viewer is the resolver for the viewer field.
 func (r *queryResolver) Viewer(ctx context.Context) (*generated.Viewer, error) {
@@ -83,31 +141,11 @@ func (r *queryResolver) RoomBySlug(ctx context.Context, slug string) (*generated
 	return mapRoom(*room), nil
 }
 
+// Mutation returns generated.MutationResolver implementation.
+func (r *Resolver) Mutation() generated.MutationResolver { return &mutationResolver{r} }
+
 // Query returns generated.QueryResolver implementation.
 func (r *Resolver) Query() generated.QueryResolver { return &queryResolver{r} }
 
+type mutationResolver struct{ *Resolver }
 type queryResolver struct{ *Resolver }
-
-func mapRoom(room models.RoomWithLatestVersion) *generated.Room {
-	var latestVersion *generated.RoomVersion
-	if room.LatestVersion != nil {
-		latestVersion = &generated.RoomVersion{
-			ID:            room.LatestVersion.ID.String(),
-			VersionNumber: room.LatestVersion.VersionNumber,
-			Status:        generated.RoomVersionStatus(room.LatestVersion.Status),
-			Changelog:     room.LatestVersion.Changelog,
-			PublishedAt:   room.LatestVersion.PublishedAt.UTC().Format(time.RFC3339),
-		}
-	}
-
-	return &generated.Room{
-		ID:            room.ID.String(),
-		Slug:          room.Slug,
-		Title:         room.Title,
-		District:      room.District,
-		Engine:        generated.RoomEngine(room.Engine),
-		Difficulty:    generated.RoomDifficulty(room.Difficulty),
-		Description:   room.Description,
-		LatestVersion: latestVersion,
-	}
-}
