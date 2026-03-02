@@ -3,6 +3,7 @@ package transport
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http/httptest"
 	"strings"
 	"sync"
@@ -50,7 +51,20 @@ func TestWSHandlerHelloAuthAndSnapshot(t *testing.T) {
 	}
 }
 
-func TestWSHandlerRejectsInvalidToken(t *testing.T) {
+func TestWSHandlerRejectsNonHelloFirstMessageWithCode(t *testing.T) {
+	runID := uuid.New()
+	h := NewWSHandler(HandlerConfig{Secret: "secret", Runtime: &fakeRuntime{}})
+	s := httptest.NewServer(h)
+	defer s.Close()
+
+	conn := mustDial(t, s.URL, runID)
+	defer conn.Close()
+
+	mustWrite(t, conn, ws.Envelope{Type: ws.TypePong})
+	assertCloseCode(t, conn, closeExpectedHello)
+}
+
+func TestWSHandlerRejectsInvalidTokenWithCode(t *testing.T) {
 	runID := uuid.New()
 	h := NewWSHandler(HandlerConfig{Secret: "secret", Runtime: &fakeRuntime{}})
 	s := httptest.NewServer(h)
@@ -60,11 +74,7 @@ func TestWSHandlerRejectsInvalidToken(t *testing.T) {
 	defer conn.Close()
 
 	mustWrite(t, conn, ws.Envelope{ProtocolVersion: ws.ProtocolVersion1, Type: ws.TypeHello, RunID: runID.String(), Payload: mustRawMsg(t, ws.HelloPayload{RunToken: "bad"})})
-	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
-	_, _, err := conn.ReadMessage()
-	if err == nil {
-		t.Fatalf("expected close on invalid token")
-	}
+	assertCloseCode(t, conn, closeUnauthorized)
 }
 
 func TestWSHandlerApplyActionAndDelta(t *testing.T) {
@@ -102,6 +112,35 @@ func TestWSHandlerApplyActionAndDelta(t *testing.T) {
 	}
 }
 
+func TestWSHandlerStreamsRuntimeDeltas(t *testing.T) {
+	runID := uuid.New()
+	secret := "secret"
+	tok := mustMintToken(t, secret, runID)
+
+	subscribeCh := make(chan ws.Delta, 1)
+	runtime := &fakeRuntime{
+		connectResult: ConnectResult{SnapshotRequired: true, Snapshot: ws.Delta{Seq: 1, Payload: json.RawMessage(`{"metrics":{}}`)}},
+		subscribeCh:   subscribeCh,
+	}
+
+	h := NewWSHandler(HandlerConfig{Secret: secret, Runtime: runtime})
+	s := httptest.NewServer(h)
+	defer s.Close()
+
+	conn := mustDial(t, s.URL, runID)
+	defer conn.Close()
+	mustWrite(t, conn, ws.Envelope{ProtocolVersion: ws.ProtocolVersion1, Type: ws.TypeHello, RunID: runID.String(), Payload: mustRawMsg(t, ws.HelloPayload{RunToken: tok})})
+	_ = mustRead(t, conn)
+	_ = mustRead(t, conn)
+
+	subscribeCh <- ws.Delta{Seq: 2, Payload: json.RawMessage(`{"ops":[{"op":"replace","path":"/metrics/cache_hit_rate","value":0.1}]}`)}
+
+	delta := mustRead(t, conn)
+	if delta.Type != ws.TypeDelta || delta.Seq == nil || *delta.Seq != 2 {
+		t.Fatalf("delta=%+v", delta)
+	}
+}
+
 func TestWSHandlerClosesOnNonMonotonicConnectDeltas(t *testing.T) {
 	runID := uuid.New()
 	secret := "secret"
@@ -109,7 +148,7 @@ func TestWSHandlerClosesOnNonMonotonicConnectDeltas(t *testing.T) {
 
 	runtime := &fakeRuntime{connectResult: ConnectResult{
 		SnapshotRequired: false,
-		Deltas: []ws.Delta{{Seq: 2, Payload: json.RawMessage(`{"ops":[]}`)}},
+		Deltas:           []ws.Delta{{Seq: 2, Payload: json.RawMessage(`{"ops":[]}`)}},
 	}}
 
 	h := NewWSHandler(HandlerConfig{Secret: secret, Runtime: runtime})
@@ -121,19 +160,21 @@ func TestWSHandlerClosesOnNonMonotonicConnectDeltas(t *testing.T) {
 	mustWrite(t, conn, ws.Envelope{ProtocolVersion: ws.ProtocolVersion1, Type: ws.TypeHello, RunID: runID.String(), Payload: mustRawMsg(t, ws.HelloPayload{RunToken: tok})})
 	_ = mustRead(t, conn)
 
-	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
-	_, _, err := conn.ReadMessage()
-	if err == nil {
-		t.Fatalf("expected close")
-	}
+	assertCloseCode(t, conn, closeSeqGap)
 }
 
-func TestWSHandlerReplacesExistingConnectionForRun(t *testing.T) {
+func TestWSHandlerReplacesExistingConnectionForRunWhileStreaming(t *testing.T) {
 	runID := uuid.New()
 	secret := "secret"
 	tok := mustMintToken(t, secret, runID)
 
-	runtime := &fakeRuntime{connectResult: ConnectResult{SnapshotRequired: true, Snapshot: ws.Delta{Seq: 1, Payload: json.RawMessage(`{"metrics":{}}`)}}}
+	streamA := make(chan ws.Delta, 128)
+	streamB := make(chan ws.Delta, 1)
+	runtime := &fakeRuntime{
+		connectResult:  ConnectResult{SnapshotRequired: true, Snapshot: ws.Delta{Seq: 1, Payload: json.RawMessage(`{"metrics":{}}`)}},
+		subscribeQueue: []<-chan ws.Delta{streamA, streamB},
+	}
+
 	h := NewWSHandler(HandlerConfig{Secret: secret, Runtime: runtime})
 	s := httptest.NewServer(h)
 	defer s.Close()
@@ -144,17 +185,17 @@ func TestWSHandlerReplacesExistingConnectionForRun(t *testing.T) {
 	_ = mustRead(t, conn1)
 	_ = mustRead(t, conn1)
 
+	for i := 2; i < 80; i++ {
+		streamA <- ws.Delta{Seq: i, Payload: json.RawMessage(`{"ops":[]}`)}
+	}
+
 	conn2 := mustDial(t, s.URL, runID)
 	defer conn2.Close()
 	mustWrite(t, conn2, ws.Envelope{ProtocolVersion: ws.ProtocolVersion1, Type: ws.TypeHello, RunID: runID.String(), Payload: mustRawMsg(t, ws.HelloPayload{RunToken: tok})})
 	_ = mustRead(t, conn2)
 	_ = mustRead(t, conn2)
 
-	_ = conn1.SetReadDeadline(time.Now().Add(2 * time.Second))
-	_, _, err := conn1.ReadMessage()
-	if err == nil {
-		t.Fatalf("expected first connection closed")
-	}
+	assertCloseCode(t, conn1, closeConnectionReplaced)
 }
 
 func TestWSHandlerPongKeepsConnectionAlive(t *testing.T) {
@@ -180,6 +221,27 @@ func TestWSHandlerPongKeepsConnectionAlive(t *testing.T) {
 			mustWrite(t, conn, ws.Envelope{Type: ws.TypePong})
 		}
 	}
+}
+
+func assertCloseCode(t *testing.T, c *websocket.Conn, want int) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		_ = c.SetReadDeadline(deadline)
+		_, _, err := c.ReadMessage()
+		if err == nil {
+			continue
+		}
+		var closeErr *websocket.CloseError
+		if !errors.As(err, &closeErr) {
+			t.Fatalf("expected CloseError, got %T %v", err, err)
+		}
+		if closeErr.Code != want {
+			t.Fatalf("close code=%d want=%d text=%q", closeErr.Code, want, closeErr.Text)
+		}
+		return
+	}
+	t.Fatalf("expected close code=%d", want)
 }
 
 func mustMintToken(t *testing.T, secret string, runID uuid.UUID) string {
@@ -239,11 +301,13 @@ func mustDecode(t *testing.T, in json.RawMessage, out any) {
 }
 
 type fakeRuntime struct {
-	mu            sync.Mutex
-	connectResult ConnectResult
-	applyResult   ApplyActionResult
-	connectCalls  int
-	applyCalls    int
+	mu             sync.Mutex
+	connectResult  ConnectResult
+	applyResult    ApplyActionResult
+	subscribeCh    <-chan ws.Delta
+	subscribeQueue []<-chan ws.Delta
+	connectCalls   int
+	applyCalls     int
 }
 
 func (f *fakeRuntime) Connect(_ context.Context, _ uuid.UUID, _ *int) (ConnectResult, error) {
@@ -258,4 +322,20 @@ func (f *fakeRuntime) ApplyAction(_ context.Context, _ uuid.UUID, _ ApplyActionI
 	defer f.mu.Unlock()
 	f.applyCalls++
 	return f.applyResult, nil
+}
+
+func (f *fakeRuntime) SubscribeDeltas(_ context.Context, _ uuid.UUID) (<-chan ws.Delta, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.subscribeQueue) > 0 {
+		ch := f.subscribeQueue[0]
+		f.subscribeQueue = f.subscribeQueue[1:]
+		return ch, nil
+	}
+	if f.subscribeCh != nil {
+		return f.subscribeCh, nil
+	}
+	ch := make(chan ws.Delta)
+	close(ch)
+	return ch, nil
 }
