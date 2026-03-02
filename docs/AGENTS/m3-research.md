@@ -356,8 +356,10 @@ Split across two frontend PRs:
 - New `internal/token/` package: JWT mint (BFF) + verify (Engine A) with shared HMAC key.
 - **No JWT library in go.mod yet** — add `github.com/golang-jwt/jwt/v5`.
 - Both services read `RUN_TOKEN_SECRET` from env. If they mismatch, WS `hello` silently fails.
-- **Footgun:** Forgetting to set `RUN_TOKEN_SECRET` in `.env.local` will break the entire
-  startRun → WS connect flow. Add it to `.env.local` with a dev default and validate on startup.
+- **Dev ergonomics:** Follow the "zero flags, zero env vars" pattern from M2 (same as S3
+  credentials defaulting to `minioadmin`). Set `RUN_TOKEN_SECRET=dev-run-token-secret-not-for-production`
+  in `.env.local` during PR1. Both services should validate on startup with a clear error
+  message if the var is missing (production) but work out of the box for local dev.
 
 ### 4.2 Engine A Bundle Loading
 
@@ -386,8 +388,16 @@ The simulation engine is a tight loop with well-defined semantics:
 
 **Determinism invariant:** `(seed + action_log + tick_count) → identical state`.
 - Ticks are sim-tick counter, NOT wall-clock time.
-- The server drives tick advancement. On reconnect, the server replays ticks from the
-  action log to rebuild state.
+- **Tick advancement model (real-time play vs fast-forward replay):**
+  During live play, the server advances ticks on a real timer (every `tick_interval_ms`).
+  Each tick is recorded in the action log as a virtual `tick` entry (not a player action,
+  but part of the log). On reconnect/replay, ticks are replayed from the log without
+  real-time delays — the engine fast-forwards through all recorded ticks to rebuild state,
+  then resumes real-time ticking from the current tick number.
+  This is the standard game server pattern: real-time during play, fast-forward during replay.
+  The PR4 sim engine must support both modes (real-time tick with timer vs batch replay from log).
+  The PR5 WS handler calls the replay path on `hello` (to rebuild state for the connecting
+  client) and then switches to the real-time tick loop for ongoing play.
 - **Footgun:** Floating-point arithmetic is deterministic on a single platform but may
   differ cross-platform. For M3 (single-VPS), this is fine. If multi-node replay is
   needed later, consider fixed-point math or rounding to N decimal places per tick.
@@ -473,6 +483,8 @@ CREATE TABLE runs (
     completed_at      TIMESTAMPTZ
 );
 
+CREATE INDEX idx_runs_user_id_started_at ON runs(user_id, started_at);
+
 CREATE TABLE run_actions (
     id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     run_id            UUID NOT NULL REFERENCES runs(id),
@@ -483,7 +495,17 @@ CREATE TABLE run_actions (
     UNIQUE (run_id, seq),
     UNIQUE (run_id, client_request_id)
 );
+
+CREATE INDEX idx_run_actions_run_id ON run_actions(run_id);
 ```
+
+**Index rationale:**
+- `idx_runs_user_id_started_at` — covers "show my recent runs" queries (run history page).
+  Composite `(user_id, started_at)` per TDD §6.2. Add now while the table is empty.
+- `idx_run_actions_run_id` — covers "replay all actions for this run" query that Engine A
+  hits on every WS connect (reconnect rebuilds state from action log). The UNIQUE constraints
+  on `(run_id, seq)` and `(run_id, client_request_id)` help point lookups but not a
+  bare `WHERE run_id = $1 ORDER BY seq` scan.
 
 ### 5.2 New or Modified Modules
 
@@ -554,7 +576,7 @@ PR2 (run DB + models) ─┤         ╱
 
 | Var | Service | Purpose | Default |
 |-----|---------|---------|---------|
-| `RUN_TOKEN_SECRET` | BFF + Engine A | Shared HMAC signing key for runToken JWTs | (none — required) |
+| `RUN_TOKEN_SECRET` | BFF + Engine A | Shared HMAC signing key for runToken JWTs | `dev-run-token-secret-not-for-production` (in `.env.local`) |
 | `RUN_TOKEN_TTL` | BFF | TTL for minted runTokens | `30m` |
 | `ENGINE_A_PORT` | Engine A | HTTP/WS listen port | `8081` |
 | `DATABASE_URL` | Engine A | Postgres connection for runs/actions | (same as BFF) |
