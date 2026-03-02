@@ -20,12 +20,16 @@ import (
 	authservice "github.com/sidsharma96/SysEscape/internal/auth/service"
 	authtransport "github.com/sidsharma96/SysEscape/internal/auth/transport"
 	catalogrepo "github.com/sidsharma96/SysEscape/internal/catalog/repo"
+	enginerepo "github.com/sidsharma96/SysEscape/internal/engine/a/repo"
+	engineasvc "github.com/sidsharma96/SysEscape/internal/engine/a/service"
 	"github.com/sidsharma96/SysEscape/internal/graphql/generated"
 	"github.com/sidsharma96/SysEscape/internal/graphql/resolvers"
 	platformlog "github.com/sidsharma96/SysEscape/internal/platform/log"
 	publishsvc "github.com/sidsharma96/SysEscape/internal/platform/publish"
 	"github.com/sidsharma96/SysEscape/internal/platform/storage"
 )
+
+const defaultRunTokenSecret = "dev-run-token-secret-not-for-production"
 
 // Config holds GraphQL BFF runtime configuration loaded from env vars.
 type Config struct {
@@ -41,12 +45,18 @@ type Config struct {
 	S3SecretKey          string
 	S3Region             string
 	S3ForcePathStyle     bool
+	RunTokenSecret       string
+	RunTokenTTL          time.Duration
 	Port                 string
 }
 
 // LoadConfigFromEnv loads and validates all required GraphQL BFF env vars.
 func LoadConfigFromEnv() (Config, error) {
 	s3ForcePathStyle, err := parseBoolEnv("S3_FORCE_PATH_STYLE", true)
+	if err != nil {
+		return Config{}, err
+	}
+	runTokenTTL, err := parseDurationEnv("RUN_TOKEN_TTL", 30*time.Minute)
 	if err != nil {
 		return Config{}, err
 	}
@@ -64,6 +74,8 @@ func LoadConfigFromEnv() (Config, error) {
 		S3SecretKey:          envOrDefault("S3_SECRET_KEY", "minioadmin"),
 		S3Region:             envOrDefault("S3_REGION", "us-east-1"),
 		S3ForcePathStyle:     s3ForcePathStyle,
+		RunTokenSecret:       envOrDefault("RUN_TOKEN_SECRET", defaultRunTokenSecret),
+		RunTokenTTL:          runTokenTTL,
 		Port:                 os.Getenv("PORT"),
 	}
 
@@ -111,6 +123,21 @@ func parseBoolEnv(key string, fallback bool) (bool, error) {
 	return parsed, nil
 }
 
+func parseDurationEnv(key string, fallback time.Duration) (time.Duration, error) {
+	val := strings.TrimSpace(os.Getenv(key))
+	if val == "" {
+		return fallback, nil
+	}
+	parsed, err := time.ParseDuration(val)
+	if err != nil {
+		return 0, fmt.Errorf("invalid %s value %q: %w", key, val, err)
+	}
+	if parsed <= 0 {
+		return 0, fmt.Errorf("%s must be positive", key)
+	}
+	return parsed, nil
+}
+
 func main() {
 	logger := platformlog.NewLogger()
 
@@ -151,6 +178,8 @@ func main() {
 		os.Exit(1)
 	}
 	publishService := publishsvc.NewPublishService(pool, bundleStore)
+	runRepo := enginerepo.NewPostgresRunRepo(pool)
+	runService := engineasvc.NewRunService(pool, runRepo, engineasvc.NewJWTTokenMinter(cfg.RunTokenSecret, cfg.RunTokenTTL))
 
 	oauthCfg := authservice.OAuthConfig{
 		ClientID:             cfg.GitHubClientID,
@@ -165,6 +194,7 @@ func main() {
 	resolver := &resolvers.Resolver{
 		CatalogRepo:    roomRepo,
 		PublishService: publishService,
+		RunService:     runService,
 	}
 	gqlSrv := handler.NewDefaultServer(generated.NewExecutableSchema(generated.Config{Resolvers: resolver}))
 	gqlHandler := authtransport.SessionMiddleware(authSvc)(gqlSrv)
@@ -190,6 +220,9 @@ func main() {
 
 	errCh := make(chan error, 1)
 	go func() {
+		if cfg.RunTokenSecret == defaultRunTokenSecret {
+			logger.Warn("RUN_TOKEN_SECRET is not set; using default development secret")
+		}
 		logger.Info("graphql-bff starting", slog.String("addr", httpServer.Addr))
 		errCh <- httpServer.ListenAndServe()
 	}()

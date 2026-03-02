@@ -47,6 +47,16 @@ type RoomVersion struct {
 	PublishedAt   string            `json:"publishedAt"`
 }
 
+type StartRunInput struct {
+	ClientRequestID string `json:"clientRequestId"`
+	RoomSlug        string `json:"roomSlug"`
+}
+
+type StartRunPayload struct {
+	RunID    string `json:"runId"`
+	RunToken string `json:"runToken"`
+}
+
 type Viewer struct {
 	UserID         string  `json:"userId"`
 	Role           string  `json:"role"`

@@ -12,6 +12,7 @@ import (
 	authservice "github.com/sidsharma96/SysEscape/internal/auth/service"
 	authtransport "github.com/sidsharma96/SysEscape/internal/auth/transport"
 	catalogrepo "github.com/sidsharma96/SysEscape/internal/catalog/repo"
+	engineasvc "github.com/sidsharma96/SysEscape/internal/engine/a/service"
 	"github.com/sidsharma96/SysEscape/internal/graphql/generated"
 	publishsvc "github.com/sidsharma96/SysEscape/internal/platform/publish"
 	"github.com/sidsharma96/SysEscape/pkg/models"
@@ -27,11 +28,22 @@ type mockPublishService struct {
 	publishFn func(ctx context.Context, input publishsvc.PublishInput) (*models.RoomVersion, error)
 }
 
+type mockRunService struct {
+	startRunFn func(ctx context.Context, input engineasvc.StartRunInput) (*engineasvc.StartRunResult, error)
+}
+
 func (m *mockPublishService) Publish(ctx context.Context, input publishsvc.PublishInput) (*models.RoomVersion, error) {
 	if m.publishFn == nil {
 		return nil, errors.New("publishFn not set")
 	}
 	return m.publishFn(ctx, input)
+}
+
+func (m *mockRunService) StartRun(ctx context.Context, input engineasvc.StartRunInput) (*engineasvc.StartRunResult, error) {
+	if m.startRunFn == nil {
+		return nil, errors.New("startRunFn not set")
+	}
+	return m.startRunFn(ctx, input)
 }
 
 func (m *mockRoomRepo) List(ctx context.Context, filter catalogrepo.RoomFilter) ([]models.RoomWithLatestVersion, error) {
@@ -268,5 +280,97 @@ func TestPublishResolver_RejectsNonAdmin(t *testing.T) {
 	}
 	if got, _ := gqlErr.Extensions["code"].(string); got != "FORBIDDEN" {
 		t.Fatalf("error code = %q, want FORBIDDEN", got)
+	}
+}
+
+func TestStartRunResolver_RejectsUnauthenticated(t *testing.T) {
+	r := &Resolver{}
+	_, err := r.Mutation().StartRun(context.Background(), generated.StartRunInput{
+		ClientRequestID: uuid.NewString(),
+		RoomSlug:        "cache-stampede",
+	})
+	if err == nil {
+		t.Fatal("expected unauthorized error")
+	}
+	var gqlErr *gqlerror.Error
+	if !errors.As(err, &gqlErr) {
+		t.Fatalf("error type = %T, want *gqlerror.Error", err)
+	}
+	if got, _ := gqlErr.Extensions["code"].(string); got != "UNAUTHORIZED" {
+		t.Fatalf("error code = %q, want UNAUTHORIZED", got)
+	}
+}
+
+func TestStartRunResolver_StartsRunForActiveRoom(t *testing.T) {
+	roomVersionID := uuid.New()
+	runID := uuid.New()
+	userID := uuid.New()
+	r := &Resolver{
+		CatalogRepo: &mockRoomRepo{getBySlugFn: func(ctx context.Context, slug string) (*models.RoomWithLatestVersion, error) {
+			if slug != "cache-stampede" {
+				t.Fatalf("slug = %q, want cache-stampede", slug)
+			}
+			return &models.RoomWithLatestVersion{
+				Room: models.Room{
+					Slug:                slug,
+					Engine:              "A",
+					ActiveRoomVersionID: &roomVersionID,
+				},
+			}, nil
+		}},
+		RunService: &mockRunService{startRunFn: func(ctx context.Context, input engineasvc.StartRunInput) (*engineasvc.StartRunResult, error) {
+			if input.UserID != userID || input.RoomVersionID != roomVersionID || input.Engine != "A" {
+				t.Fatalf("unexpected input=%+v", input)
+			}
+			return &engineasvc.StartRunResult{
+				RunID:    runID,
+				RunToken: "token-1",
+			}, nil
+		}},
+	}
+
+	ctx := authtransport.ContextWithUser(context.Background(), &models.User{ID: userID, Role: "USER"})
+	got, err := r.Mutation().StartRun(ctx, generated.StartRunInput{
+		ClientRequestID: uuid.NewString(),
+		RoomSlug:        "cache-stampede",
+	})
+	if err != nil {
+		t.Fatalf("StartRun() err=%v", err)
+	}
+	if got.RunID != runID.String() || got.RunToken != "token-1" {
+		t.Fatalf("StartRun() got=%+v", got)
+	}
+}
+
+func TestStartRunResolver_NotFoundVariants(t *testing.T) {
+	tests := []struct {
+		name    string
+		room    *models.RoomWithLatestVersion
+		message string
+	}{
+		{name: "missing room", room: nil, message: "room not found"},
+		{name: "inactive room", room: &models.RoomWithLatestVersion{Room: models.Room{Slug: "inactive-room", Engine: "A"}}, message: "room has no active version"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := &Resolver{
+				CatalogRepo: &mockRoomRepo{getBySlugFn: func(ctx context.Context, slug string) (*models.RoomWithLatestVersion, error) {
+					return tt.room, nil
+				}},
+				RunService: &mockRunService{},
+			}
+			ctx := authtransport.ContextWithUser(context.Background(), &models.User{ID: uuid.New(), Role: "USER"})
+			_, err := r.Mutation().StartRun(ctx, generated.StartRunInput{ClientRequestID: uuid.NewString(), RoomSlug: "any-room"})
+			if err == nil {
+				t.Fatal("expected NOT_FOUND error")
+			}
+			var gqlErr *gqlerror.Error
+			if !errors.As(err, &gqlErr) {
+				t.Fatalf("error type = %T, want *gqlerror.Error", err)
+			}
+			if got, _ := gqlErr.Extensions["code"].(string); got != "NOT_FOUND" || gqlErr.Message != tt.message {
+				t.Fatalf("gqlErr=%+v", gqlErr)
+			}
+		})
 	}
 }

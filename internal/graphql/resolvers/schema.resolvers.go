@@ -12,6 +12,7 @@ import (
 
 	authtransport "github.com/sidsharma96/SysEscape/internal/auth/transport"
 	catalogrepo "github.com/sidsharma96/SysEscape/internal/catalog/repo"
+	engineasvc "github.com/sidsharma96/SysEscape/internal/engine/a/service"
 	"github.com/sidsharma96/SysEscape/internal/graphql/generated"
 	publishsvc "github.com/sidsharma96/SysEscape/internal/platform/publish"
 	"github.com/vektah/gqlparser/v2/gqlerror"
@@ -71,6 +72,79 @@ func (r *mutationResolver) PublishRoomVersion(ctx context.Context, input generat
 
 	return &generated.PublishRoomVersionPayload{
 		RoomVersion: mapRoomVersion(roomVersion),
+	}, nil
+}
+
+// StartRun is the resolver for the startRun field.
+func (r *mutationResolver) StartRun(ctx context.Context, input generated.StartRunInput) (*generated.StartRunPayload, error) {
+	user, ok := authtransport.UserFromContext(ctx)
+	if !ok {
+		return nil, &gqlerror.Error{
+			Message: "unauthorized",
+			Extensions: map[string]any{
+				"code": "UNAUTHORIZED",
+			},
+		}
+	}
+	if r.CatalogRepo == nil {
+		return nil, fmt.Errorf("catalog repo is nil")
+	}
+	if r.RunService == nil {
+		return nil, fmt.Errorf("run service is nil")
+	}
+
+	room, err := r.CatalogRepo.GetBySlug(ctx, input.RoomSlug)
+	if err != nil {
+		return nil, err
+	}
+	if room == nil {
+		return nil, &gqlerror.Error{
+			Message: "room not found",
+			Extensions: map[string]any{
+				"code": "NOT_FOUND",
+			},
+		}
+	}
+	if room.ActiveRoomVersionID == nil {
+		return nil, &gqlerror.Error{
+			Message: "room has no active version",
+			Extensions: map[string]any{
+				"code": "NOT_FOUND",
+			},
+		}
+	}
+
+	result, err := r.RunService.StartRun(ctx, engineasvc.StartRunInput{
+		ClientRequestID: input.ClientRequestID,
+		UserID:          user.ID,
+		RoomSlug:        input.RoomSlug,
+		RoomVersionID:   *room.ActiveRoomVersionID,
+		Engine:          room.Engine,
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, engineasvc.ErrIdempotencyConflict):
+			return nil, &gqlerror.Error{
+				Message: "idempotency conflict",
+				Extensions: map[string]any{
+					"code": "CONFLICT",
+				},
+			}
+		case errors.Is(err, engineasvc.ErrRequestInProgress):
+			return nil, &gqlerror.Error{
+				Message: "request in progress",
+				Extensions: map[string]any{
+					"code": "CONFLICT",
+				},
+			}
+		default:
+			return nil, err
+		}
+	}
+
+	return &generated.StartRunPayload{
+		RunID:    result.RunID.String(),
+		RunToken: result.RunToken,
 	}, nil
 }
 
