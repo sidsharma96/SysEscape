@@ -19,3 +19,7 @@ When an agent makes a mistake:
 1. AGENTS.md references module docs that don't exist yet. Agents should not create them opportunistically; only create when doing substantial first-time work on that module.
 
 2. Agent added whole path of file in the scope of change in PR description. Agents should only add the path relative to the project like 'SysEscape/internal/auth/service/auth_service.go' instead of starting with 'Users/siddharthsharma/...'
+
+3. Roomctl publish payload drifted from GraphQL schema. Always verify the live schema input fields before wiring mutation variables; do not send removed/unsupported fields such as `metadata`.
+
+4. Local GraphQL-BFF route mismatch caused smoke failures. Use `http://localhost:8080/graphql` as the default publish endpoint unless explicitly overridden.
