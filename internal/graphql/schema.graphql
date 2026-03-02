@@ -17,8 +17,19 @@ type PublishRoomVersionPayload {
   roomVersion: RoomVersion!
 }
 
+input StartRunInput {
+  clientRequestId: ID!
+  roomSlug: String!
+}
+
+type StartRunPayload {
+  runId: ID!
+  runToken: String!
+}
+
 type Mutation {
   publishRoomVersion(input: PublishRoomVersionInput!): PublishRoomVersionPayload!
+  startRun(input: StartRunInput!): StartRunPayload!
 }
 
 type Viewer {
