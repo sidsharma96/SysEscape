@@ -35,6 +35,8 @@ type WinCheck struct {
 }
 
 type SimulationSpec struct {
+	TickIntervalMS int                        `json:"tick_interval_ms"`
+	DurationTicks  int                        `json:"duration_ticks"`
 	Seed           int64                      `json:"seed"`
 	InitialMetrics map[string]float64         `json:"initial_metrics"`
 	Events         []TimedEvent               `json:"events"`

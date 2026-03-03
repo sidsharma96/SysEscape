@@ -39,6 +39,10 @@ type Runtime interface {
 	SubscribeDeltas(ctx context.Context, runID uuid.UUID) (<-chan ws.Delta, error)
 }
 
+type winUpdateRuntime interface {
+	SubscribeWinUpdates(ctx context.Context, runID uuid.UUID) (<-chan json.RawMessage, error)
+}
+
 type ConnectResult struct {
 	SnapshotRequired bool
 	Snapshot         ws.Delta
@@ -213,6 +217,17 @@ func (h *wsHandler) handleConnection(ctx context.Context, runID uuid.UUID, conn 
 	go h.streamRuntimeDeltas(stopDelta, writer, tracker, deltaCh)
 	defer close(stopDelta)
 
+	if runtimeWithWinUpdates, ok := h.cfg.Runtime.(winUpdateRuntime); ok {
+		winCh, err := runtimeWithWinUpdates.SubscribeWinUpdates(ctx, runID)
+		if err != nil {
+			writer.closeWith(closeInternal, "subscribe win updates failed")
+			return
+		}
+		stopWin := make(chan struct{})
+		go h.streamRuntimeWinUpdates(stopWin, writer, winCh)
+		defer close(stopWin)
+	}
+
 	hb := ws.NewHeartbeat(h.cfg.NowFn, h.cfg.PingInterval, h.cfg.PongTimeout)
 	stopHeartbeat := make(chan struct{})
 	go h.runHeartbeat(stopHeartbeat, hb, writer)
@@ -257,6 +272,25 @@ func (h *wsHandler) handleConnection(ctx context.Context, runID uuid.UUID, conn 
 		default:
 			writer.closeWith(closeBadMessage, "unsupported message")
 			return
+		}
+	}
+}
+
+func (h *wsHandler) streamRuntimeWinUpdates(stop <-chan struct{}, writer *connWriter, winCh <-chan json.RawMessage) {
+	for {
+		select {
+		case <-stop:
+			return
+		case payload, ok := <-winCh:
+			if !ok {
+				return
+			}
+			if len(payload) == 0 {
+				continue
+			}
+			if err := writer.write(ws.Envelope{Type: ws.TypeWinUpdate, Payload: payload}); err != nil {
+				return
+			}
 		}
 	}
 }

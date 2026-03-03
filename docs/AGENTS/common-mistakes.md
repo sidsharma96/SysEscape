@@ -23,3 +23,8 @@ When an agent makes a mistake:
 3. Roomctl publish payload drifted from GraphQL schema. Always verify the live schema input fields before wiring mutation variables; do not send removed/unsupported fields such as `metadata`.
 
 4. Local GraphQL-BFF route mismatch caused smoke failures. Use `http://localhost:8080/graphql` as the default publish endpoint unless explicitly overridden.
+
+5. Engine A WS ordering regression: treating `connWriter` mutex safety as sufficient caused protocol-order bugs (`delta` arriving before `action_accepted` / `win_update`). For WS handlers, enforce message-order contracts explicitly:
+   - `apply_action` response order must be deterministic: `action_accepted` -> immediate action `delta` -> optional `win_update`.
+   - Do not allow runtime tick emissions to interleave into that response sequence.
+   - Keep strict integration assertions for this ordering; do not relax tests to hide interleaving.
