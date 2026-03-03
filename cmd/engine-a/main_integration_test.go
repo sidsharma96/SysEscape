@@ -34,7 +34,7 @@ func TestIntegrationEngineAWSFlow(t *testing.T) {
 	if err != nil || pool.Ping(context.Background()) != nil {
 		t.Skipf("skip: postgres unavailable: %v", err)
 	}
-	defer pool.Close()
+	t.Cleanup(pool.Close)
 
 	store, err := storage.NewS3BundleStore(storage.StorageConfig{
 		Endpoint: cfg.S3Endpoint, Bucket: cfg.S3Bucket, AccessKey: cfg.S3AccessKey, SecretKey: cfg.S3SecretKey, Region: cfg.S3Region, ForcePathStyle: cfg.S3ForcePathStyle,
@@ -67,6 +67,7 @@ func TestIntegrationEngineAWSFlow(t *testing.T) {
 		bg := context.Background()
 		pool.Exec(bg, `DELETE FROM run_actions WHERE run_id = $1`, runID)
 		pool.Exec(bg, `DELETE FROM runs WHERE id = $1`, runID)
+		pool.Exec(bg, `UPDATE rooms SET active_room_version_id = NULL WHERE id = $1`, roomID)
 		pool.Exec(bg, `DELETE FROM room_versions WHERE id = $1`, rvID)
 		pool.Exec(bg, `DELETE FROM rooms WHERE id = $1`, roomID)
 		pool.Exec(bg, `DELETE FROM users WHERE id = $1`, userID)
