@@ -9,7 +9,7 @@
         run-graphql run-engine-a run-engine-b run-judge-dispatcher \
         run-bundle-proxy run-artifact-proxy run-all \
         migrate-up migrate-down migrate-create \
-        roomctl-validate roomctl-build smoke-m2 \
+        roomctl-validate roomctl-build smoke-m2 smoke-m3 \
         ui-install ui-dev ui-lint ui-test ui-build ui-codegen ui-fmt \
         help
 
@@ -209,6 +209,9 @@ smoke-m2: ## End-to-end smoke for M2 roomctl publish (requires infra + BFF runni
 	MC_HOST=$$(echo "$$MC_ENDPOINT" | sed "s#^http://#http://$${S3_ACCESS_KEY:-minioadmin}:$${S3_SECRET_KEY:-minioadmin}@#;s#^https://#https://$${S3_ACCESS_KEY:-minioadmin}:$${S3_SECRET_KEY:-minioadmin}@#"); \
 	docker run --rm --add-host host.docker.internal:host-gateway -e MC_HOST_local="$$MC_HOST" minio/mc stat "local/$${S3_BUCKET:-ser-bundles}/bundles/$$HASH.tar" >/dev/null; \
 	echo "smoke-m2 passed"
+
+smoke-m3: ## E2E smoke for M3 Engine A WS flow (requires local stack)
+	$(GO) run ./scripts/smoke_m3.go
 
 # ── Web UI (web/) ──────────────────────────────────────────────────────
 ui-install: ## Install web UI dependencies (pnpm install)

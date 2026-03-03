@@ -28,11 +28,25 @@ export interface HelloAckPayload {
   snapshotRequired: boolean;
 }
 
+export interface TopologyNode {
+  name: string;
+  type: string;
+}
+
+export interface LogEntry {
+  tick: number;
+  message: string;
+}
+
 export interface SnapshotPayload {
   tick: number;
   won: boolean;
   metrics: Record<string, number>;
   actions?: string[];
+  topology?: TopologyNode[];
+  logs?: LogEntry[];
+  totalTicks?: number;
+  appliedActions?: string[];
 }
 
 export interface ApplyActionPayload {

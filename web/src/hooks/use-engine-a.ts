@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useMemo } from "react";
 import { useWs } from "@/hooks/use-ws";
-import type { Envelope, SnapshotPayload, WinUpdatePayload, ActionAcceptedPayload } from "@/lib/ws/protocol";
+import type { Envelope, SnapshotPayload, WinUpdatePayload, ActionAcceptedPayload, TopologyNode, LogEntry } from "@/lib/ws/protocol";
+import type { ConnectionState } from "@/hooks/use-ws";
 import { PROTOCOL_VERSION } from "@/lib/ws/protocol";
 import { newRequestId } from "@/lib/idempotency";
 
@@ -15,6 +16,10 @@ export interface EngineAState {
   won: boolean;
   actions: string[];
   appliedActions: string[];
+  topology: TopologyNode[];
+  logs: LogEntry[];
+  totalTicks: number | undefined;
+  connectionState: ConnectionState;
   dispatchAction: (actionKey: string) => void;
 }
 
@@ -24,6 +29,9 @@ export function useEngineA({ runId, runToken }: UseEngineAOptions): EngineAState
   const [won, setWon] = useState(false);
   const [actions, setActions] = useState<string[]>([]);
   const [appliedActions, setAppliedActions] = useState<string[]>([]);
+  const [topology, setTopology] = useState<TopologyNode[]>([]);
+  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [totalTicks, setTotalTicks] = useState<number | undefined>(undefined);
   const lastSeqRef = useRef(0);
 
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -49,6 +57,9 @@ export function useEngineA({ runId, runToken }: UseEngineAOptions): EngineAState
           setMetrics(payload.metrics);
           if (payload.actions) setActions(payload.actions);
           if (payload.won) setWon(true);
+          if (payload.topology) setTopology(payload.topology);
+          if (payload.totalTicks !== undefined) setTotalTicks(payload.totalTicks);
+          if (payload.logs) setLogs((prev) => [...prev, ...payload.logs!]);
           break;
         }
         case "win_update": {
@@ -87,8 +98,10 @@ export function useEngineA({ runId, runToken }: UseEngineAOptions): EngineAState
     [wsResult, runId],
   );
 
+  const { connectionState } = wsResult;
+
   return useMemo(
-    () => ({ tick, metrics, won, actions, appliedActions, dispatchAction }),
-    [tick, metrics, won, actions, appliedActions, dispatchAction],
+    () => ({ tick, metrics, won, actions, appliedActions, topology, logs, totalTicks, connectionState, dispatchAction }),
+    [tick, metrics, won, actions, appliedActions, topology, logs, totalTicks, connectionState, dispatchAction],
   );
 }
