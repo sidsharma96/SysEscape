@@ -38,7 +38,12 @@ func (e *Engine) Snapshot() Snapshot {
 	for k, v := range e.metrics {
 		m[k] = v
 	}
-	return Snapshot{Tick: e.tick, Won: e.won, Metrics: m}
+	actions := make([]string, 0, len(e.spec.ActionEffects))
+	for k := range e.spec.ActionEffects {
+		actions = append(actions, k)
+	}
+	sort.Strings(actions)
+	return Snapshot{Tick: e.tick, Won: e.won, Metrics: m, Actions: actions}
 }
 
 func (e *Engine) Log() []LogEntry { out := make([]LogEntry, len(e.log)); copy(out, e.log); return out }

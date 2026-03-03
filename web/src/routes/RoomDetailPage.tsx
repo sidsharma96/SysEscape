@@ -1,8 +1,12 @@
-import { useParams } from "react-router-dom";
-import { useQuery } from "urql";
+import { useParams, useNavigate } from "react-router-dom";
+import { useQuery, useMutation } from "urql";
+import { useState, useRef } from "react";
 import { ROOM_BY_SLUG_QUERY } from "@/lib/graphql/queries";
 import type { RoomBySlugQueryResult } from "@/lib/graphql/queries";
+import { START_RUN_MUTATION } from "@/lib/graphql/mutations";
+import type { StartRunResult } from "@/lib/graphql/mutations";
 import { DifficultyBadge } from "@/components/catalog/DifficultyBadge";
+import { newRequestId } from "@/lib/idempotency";
 
 function DetailSkeleton() {
   return (
@@ -30,12 +34,38 @@ function DetailSkeleton() {
 
 export function RoomDetailPage() {
   const { slug } = useParams<{ slug: string }>();
+  const navigate = useNavigate();
   const [result] = useQuery<RoomBySlugQueryResult>({
     query: ROOM_BY_SLUG_QUERY,
     variables: { slug },
     pause: !slug,
   });
   const { data, fetching, error } = result;
+  const [, executeStartRun] = useMutation<StartRunResult>(START_RUN_MUTATION);
+  const [startError, setStartError] = useState<string | null>(null);
+  const [starting, setStarting] = useState(false);
+  const requestIdRef = useRef<string | null>(null);
+
+  async function handleStartRun() {
+    if (!slug) return;
+    setStarting(true);
+    setStartError(null);
+    if (!requestIdRef.current) {
+      requestIdRef.current = newRequestId();
+    }
+    const res = await executeStartRun({ input: { clientRequestId: requestIdRef.current, roomSlug: slug } });
+    if (res.error) {
+      setStartError("Failed to start run");
+      setStarting(false);
+      return;
+    }
+    if (res.data) {
+      const { runId, runToken } = res.data.startRun;
+      navigate(`/play/${runId}/engine-a`, { state: { runToken } });
+    }
+    requestIdRef.current = null;
+    setStarting(false);
+  }
 
   if (error) {
     return <p className="text-signal-crit">Failed to load room: {error.message}</p>;
@@ -62,11 +92,17 @@ export function RoomDetailPage() {
       </div>
       <p className="mb-8 text-gray-300">{room.description}</p>
       <button
-        disabled
-        className="rounded-lg bg-surface-light px-6 py-2 text-sm font-medium text-gray-500 cursor-not-allowed"
+        disabled={starting}
+        onClick={handleStartRun}
+        className={
+          starting
+            ? "rounded-lg bg-surface-light px-6 py-2 text-sm font-medium text-gray-500 cursor-not-allowed"
+            : "rounded-lg bg-surface-mid px-6 py-2 text-sm font-medium text-gray-100 hover:bg-panel-hover"
+        }
       >
-        Start Run
+        {starting ? "Starting..." : "Start Run"}
       </button>
+      {startError && <p className="mt-2 text-signal-crit">{startError}</p>}
     </div>
   );
 }
