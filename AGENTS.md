@@ -42,6 +42,7 @@ Shared types between frontend and backend come from GraphQL codegen, not from Go
 
 ## Key Rules
 
+- Never add `Co-Authored-By` or similar attribution trailers to commit messages.
 - Write failing tests FIRST. Confirm they fail. Then implement.
 - All external inputs validated at the boundary (transport layer).
 - `clientRequestId` (UUID v4) on every mutation — idempotency is a system invariant.
