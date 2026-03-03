@@ -63,6 +63,14 @@ func TestIntegrationEngineAWSFlow(t *testing.T) {
 	if _, err := pool.Exec(ctx, `INSERT INTO runs (id, user_id, room_version_id, seed, status) VALUES ($1,$2,$3,42,'ACTIVE')`, runID, userID, rvID); err != nil {
 		t.Fatalf("seed run: %v", err)
 	}
+	t.Cleanup(func() {
+		bg := context.Background()
+		pool.Exec(bg, `DELETE FROM run_actions WHERE run_id = $1`, runID)
+		pool.Exec(bg, `DELETE FROM runs WHERE id = $1`, runID)
+		pool.Exec(bg, `DELETE FROM room_versions WHERE id = $1`, rvID)
+		pool.Exec(bg, `DELETE FROM rooms WHERE id = $1`, roomID)
+		pool.Exec(bg, `DELETE FROM users WHERE id = $1`, userID)
+	})
 
 	rt := NewEngineARuntime(EngineARuntimeConfig{DB: pool, RunRepo: enginerepo.NewPostgresRunRepo(pool), BundleStore: store})
 	srv := httptest.NewServer(transport.NewWSHandler(transport.HandlerConfig{Secret: cfg.RunTokenSecret, Runtime: rt}))

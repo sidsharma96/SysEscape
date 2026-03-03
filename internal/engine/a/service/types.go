@@ -55,6 +55,7 @@ type Snapshot struct {
 	Tick    int                `json:"tick"`
 	Won     bool               `json:"won"`
 	Metrics map[string]float64 `json:"metrics"`
+	Actions []string           `json:"actions,omitempty"`
 }
 
 type Engine struct {
