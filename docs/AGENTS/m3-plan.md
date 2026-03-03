@@ -752,3 +752,362 @@ Required outcomes:
 - Operational milestone gates:
   - PR6: `make run-engine-a` usable.
   - PR7b: `make smoke-m3` usable.
+
+---
+
+## PR8 — TopologyMap Click-to-Filter + Design System Polish
+
+Goal: Make topology nodes clickable to filter MetricsPanel + LogsPanel by node. Add signal color thresholds to metric values. Load JetBrains Mono font.
+
+Dependencies: PR7b
+Estimated LOC: ~450
+
+### Sub-goals
+
+**(A)** Extend signals.yaml schema with `node` and `thresholds` fields → update Go structs → enrich initial WS snapshot with topology + signals metadata → clickable TopologyMap badges → filtered MetricsPanel/LogsPanel
+
+**(B)** Install `@fontsource/jetbrains-mono` → import in main.tsx → font renders immediately (CSS token already configured)
+
+### Files to create
+
+None — all modifications to existing files.
+
+### Files to modify
+
+**Room content:**
+- `rooms/cache-stampede/engineA/signals.yaml` — rewrite from flat lists to typed objects with `node` + `thresholds`
+
+**Go schema + loader:**
+- `internal/roomctl/schema.go` — replace flat `Signals` struct with `SignalMetric`, `SignalLog`, `MetricThresholds`
+- `internal/engine/a/service/bundle_loader.go` — mirror with `BundleSignalMetric`, `BundleSignalLog`, `BundleMetricThreshold` (add `json` tags for WS serialization)
+- `internal/roomctl/validate_test.go` — update fixture YAML
+- `internal/engine/a/service/bundle_loader_test.go` — update fixture YAML
+
+**Go runtime (initial snapshot enrichment):**
+- `cmd/engine-a/runtime.go` — add `topology` + `signals` fields to `runState`; populate from bundle in `state()`; build enriched JSON in `Connect()` merging `Engine.Snapshot()` + static topology + signals
+
+**Frontend deps + font:**
+- `web/package.json` — add `@fontsource/jetbrains-mono`
+- `web/src/main.tsx` — add `import "@fontsource/jetbrains-mono"`
+
+**Frontend protocol + hook:**
+- `web/src/lib/ws/protocol.ts` — add `MetricThresholds`, `SignalMetric`, `SignalLog`, `SignalMetadata` types; extend `SnapshotPayload` with `signals?`
+- `web/src/hooks/use-engine-a.ts` — add `signals`, `selectedNode`, `setSelectedNode` state; extract `signals` from snapshot; expose in return
+
+**Frontend components:**
+- `web/src/components/engine-a/TopologyMap.tsx` — add `selectedNode`, `onSelectNode` props; click toggles selection; selected node gets `border-signal-ok` highlight
+- `web/src/components/engine-a/MetricsPanel.tsx` — add `signals`, `selectedNode` props; filter by node; color values via `getSignalColor(value, thresholds)`
+- `web/src/components/engine-a/LogsPanel.tsx` — add `signals`, `selectedNode` props; filter logs by matching logPattern node
+- `web/src/routes/EngineAPage.tsx` — destructure new hook fields; wire `selectedNode`/`onSelectNode` to TopologyMap; pass `signals`/`selectedNode` to MetricsPanel + LogsPanel
+
+**Frontend tests:**
+- `web/src/components/engine-a/__tests__/TopologyMap.test.tsx` — add click callback + highlight tests
+- `web/src/components/engine-a/__tests__/MetricsPanel.test.tsx` — add signal color + node filter tests
+- `web/src/components/engine-a/__tests__/LogsPanel.test.tsx` — add node filter tests
+- `web/src/hooks/__tests__/use-engine-a.test.ts` — update mock snapshot; verify `signals` + `selectedNode`
+
+### Step-by-step
+
+#### Step 1: Update signals.yaml schema + room content
+
+Rewrite `rooms/cache-stampede/engineA/signals.yaml`:
+
+```yaml
+metrics:
+  - name: request_latency_ms
+    node: app-server
+    thresholds: { ok: 100, warn: 500 }
+  - name: db_connections
+    node: database
+    thresholds: { ok: 50, warn: 150 }
+  - name: cache_hit_rate
+    node: cache
+    thresholds: { ok: 0.9, warn: 0.5 }
+  - name: error_rate
+    node: app-server
+    thresholds: { ok: 0.01, warn: 0.05 }
+logPatterns:
+  - pattern: "cache miss burst"
+    node: cache
+  - pattern: "db pool exhausted"
+    node: database
+traceSpans:
+  - "GET /api/items"
+  - "cache.lookup"
+  - "db.query"
+```
+
+Threshold color direction inferred from `ok` vs `warn`:
+- `ok < warn` → lower is better: `<=ok` green, `ok..warn` amber, `>warn` red
+- `ok > warn` → higher is better: `>=ok` green, `warn..ok` amber, `<warn` red
+
+#### Step 2: Update Go schema structs
+
+**`internal/roomctl/schema.go`** — replace:
+```go
+type Signals struct {
+    Metrics     []string `yaml:"metrics"`
+    LogPatterns []string `yaml:"logPatterns"`
+    TraceSpans  []string `yaml:"traceSpans"`
+}
+```
+with:
+```go
+type SignalMetric struct {
+    Name       string            `yaml:"name"`
+    Node       string            `yaml:"node"`
+    Thresholds *MetricThresholds `yaml:"thresholds,omitempty"`
+}
+type MetricThresholds struct {
+    Ok   float64 `yaml:"ok"`
+    Warn float64 `yaml:"warn"`
+}
+type SignalLog struct {
+    Pattern string `yaml:"pattern"`
+    Node    string `yaml:"node"`
+}
+type Signals struct {
+    Metrics     []SignalMetric `yaml:"metrics"`
+    LogPatterns []SignalLog    `yaml:"logPatterns"`
+    TraceSpans  []string       `yaml:"traceSpans"`
+}
+```
+
+**`internal/engine/a/service/bundle_loader.go`** — same pattern with `Bundle`-prefix and `json` tags (needed for WS serialization in Step 3):
+```go
+type BundleSignalMetric struct {
+    Name       string                 `yaml:"name" json:"name"`
+    Node       string                 `yaml:"node" json:"node"`
+    Thresholds *BundleMetricThreshold `yaml:"thresholds,omitempty" json:"thresholds,omitempty"`
+}
+type BundleMetricThreshold struct {
+    Ok   float64 `yaml:"ok" json:"ok"`
+    Warn float64 `yaml:"warn" json:"warn"`
+}
+type BundleSignalLog struct {
+    Pattern string `yaml:"pattern" json:"pattern"`
+    Node    string `yaml:"node" json:"node"`
+}
+type BundleSignals struct {
+    Metrics     []BundleSignalMetric `yaml:"metrics" json:"metrics"`
+    LogPatterns []BundleSignalLog    `yaml:"logPatterns" json:"logPatterns"`
+    TraceSpans  []string             `yaml:"traceSpans" json:"traceSpans"`
+}
+```
+
+Update test fixtures in `validate_test.go` and `bundle_loader_test.go` to use new YAML format.
+
+#### Step 3: Enrich initial WS snapshot (Go runtime)
+
+**`cmd/engine-a/runtime.go`**:
+
+1. Add to `runState` struct:
+   ```go
+   topology []map[string]any
+   signals  engineasvc.BundleSignals
+   ```
+
+2. In `state()` after `LoadEngineABundleFromTar`, populate:
+   ```go
+   s.topology = bundle.Scenario.Topology
+   s.signals = bundle.Signals
+   ```
+
+3. In `Connect()`, replace `json.Marshal(s.engine.Snapshot())` with enriched payload:
+   ```go
+   snap := s.engine.Snapshot()
+   enriched := map[string]any{
+       "tick":       snap.Tick,
+       "won":        snap.Won,
+       "metrics":    snap.Metrics,
+       "actions":    snap.Actions,
+       "totalTicks": s.durationTicks,
+       "topology":   s.topology,
+       "signals":    s.signals,
+   }
+   payload, _ := json.Marshal(enriched)
+   ```
+
+4. Leave `tickLoop()` and `ApplyAction()` unchanged — they serialize `Engine.Snapshot()` (dynamic state only). Topology/signals are initial-snapshot-only.
+
+#### Step 4: Install JetBrains Mono font
+
+```bash
+cd web && pnpm add @fontsource/jetbrains-mono
+```
+
+Add to `web/src/main.tsx` at top:
+```typescript
+import "@fontsource/jetbrains-mono";
+```
+
+No `globals.css` change needed — `--font-mono` already references `"JetBrains Mono"`.
+
+#### Step 5: Update frontend protocol types
+
+**`web/src/lib/ws/protocol.ts`** — add:
+```typescript
+export interface MetricThresholds {
+  ok: number;
+  warn: number;
+}
+export interface SignalMetric {
+  name: string;
+  node: string;
+  thresholds?: MetricThresholds;
+}
+export interface SignalLog {
+  pattern: string;
+  node: string;
+}
+export interface SignalMetadata {
+  metrics: SignalMetric[];
+  logPatterns: SignalLog[];
+}
+```
+
+Extend `SnapshotPayload` with `signals?: SignalMetadata`.
+
+#### Step 6: Update use-engine-a hook
+
+**`web/src/hooks/use-engine-a.ts`**:
+- Add state: `signals: SignalMetadata | null` (init `null`), `selectedNode: string | null` (init `null`)
+- In snapshot handler: `if (payload.signals) setSignals(payload.signals)`
+- Add `setSelectedNode` callback
+- Expose `signals`, `selectedNode`, `setSelectedNode` in `EngineAState` interface + return
+
+#### Step 7: Write failing tests, then implement components (TDD)
+
+**7a: TopologyMap** — click highlight + callback
+
+Tests to add:
+- "calls onSelectNode when a node is clicked"
+- "highlights selected node with signal-ok border"
+- "deselects when clicking the already-selected node (calls onSelectNode(null))"
+
+Implementation:
+- Add props: `selectedNode: string | null`, `onSelectNode: (name: string | null) => void`
+- Click handler: `onSelectNode(node.name === selectedNode ? null : node.name)`
+- Selected node: add `border-signal-ok` class + subtle bg highlight; unselected: keep `border-panel-border`
+
+**7b: MetricsPanel** — signal colors + node filtering
+
+Tests to add:
+- "colors metric green when value is within ok threshold (lower-is-better)"
+- "colors metric amber when between ok and warn"
+- "colors metric red when beyond warn threshold"
+- "colors metric green for higher-is-better metric (ok > warn)"
+- "filters metrics to only show those matching selectedNode"
+- "shows all metrics when selectedNode is null"
+
+Implementation:
+- Add props: `signals?: SignalMetric[]`, `selectedNode?: string | null`
+- Filter logic: if `selectedNode`, keep only metrics whose signal entry has matching `node`
+- Color function:
+  ```typescript
+  function getSignalColor(value: number, thresholds?: MetricThresholds): string {
+    if (!thresholds) return "text-gray-100";
+    const { ok, warn } = thresholds;
+    if (ok < warn) {  // lower is better
+      if (value <= ok) return "text-signal-ok";
+      if (value <= warn) return "text-signal-warn";
+      return "text-signal-crit";
+    }
+    // higher is better
+    if (value >= ok) return "text-signal-ok";
+    if (value >= warn) return "text-signal-warn";
+    return "text-signal-crit";
+  }
+  ```
+- Apply color class to value `<td>` (replacing `text-gray-100`)
+
+**7c: LogsPanel** — node filtering
+
+Tests to add:
+- "filters logs by selectedNode via logPattern node association"
+- "shows all logs when selectedNode is null"
+
+Implementation:
+- Add props: `signals?: SignalLog[]`, `selectedNode?: string | null`
+- Filter: if `selectedNode`, collect logPatterns whose `node` matches, then only show log entries whose `message` includes at least one matching pattern string
+
+#### Step 8: Wire EngineAPage
+
+**`web/src/routes/EngineAPage.tsx`**:
+- Destructure `signals`, `selectedNode`, `setSelectedNode` from `useEngineA()`
+- Pass to TopologyMap: `selectedNode={selectedNode} onSelectNode={setSelectedNode}`
+- Pass to MetricsPanel: `signals={signals?.metrics} selectedNode={selectedNode}`
+- Pass to LogsPanel: `signals={signals?.logPatterns} selectedNode={selectedNode}`
+
+#### Step 9: Update hook tests
+
+**`web/src/hooks/__tests__/use-engine-a.test.ts`**:
+- Update mock snapshot payload to include `signals` field
+- Verify `signals` is populated after snapshot
+- Verify `selectedNode` starts as `null`
+
+### Red-green test plan
+
+1. Red: Write Go test fixtures with new signals.yaml format → run `make test-unit` → fails (struct mismatch).
+2. Green: Update Go structs → tests pass.
+3. Red: Write frontend component tests (click, colors, filtering) → run `make ui-test` → fails (props don't exist).
+4. Green: Implement component changes → tests pass.
+5. Gate: `make ui-lint`, `make ui-test`, `make ui-build`, `make test-unit`, `make ci`.
+
+### Scope fence
+
+Allowed paths:
+- `rooms/cache-stampede/engineA/signals.yaml`
+- `internal/roomctl/schema.go`
+- `internal/roomctl/validate_test.go`
+- `internal/engine/a/service/bundle_loader.go`
+- `internal/engine/a/service/bundle_loader_test.go`
+- `cmd/engine-a/runtime.go`
+- `web/package.json`, `web/pnpm-lock.yaml`
+- `web/src/main.tsx`
+- `web/src/lib/ws/protocol.ts`
+- `web/src/hooks/use-engine-a.ts`
+- `web/src/hooks/__tests__/use-engine-a.test.ts`
+- `web/src/components/engine-a/TopologyMap.tsx`
+- `web/src/components/engine-a/MetricsPanel.tsx`
+- `web/src/components/engine-a/LogsPanel.tsx`
+- `web/src/components/engine-a/__tests__/*`
+- `web/src/routes/EngineAPage.tsx`
+
+Forbidden paths:
+- `migrations/**`
+- `internal/graphql/**`
+- `internal/ws/**`
+- `internal/engine/a/transport/**`
+- `internal/engine/a/service/sim.go`
+- `internal/engine/a/service/types.go`
+- `AGENTS.md`
+
+### Acceptance criteria
+
+- Clicking a topology node highlights it and filters MetricsPanel + LogsPanel to signals associated with that node.
+- Clicking the selected node again deselects (shows all signals).
+- Metric values display green/amber/red based on per-metric thresholds from signals.yaml.
+- JetBrains Mono renders in all `font-mono` elements (logs, metrics, timer).
+- All existing tests continue to pass.
+- `make ci` passes.
+
+### Agent prompt
+
+```text
+You are the Implementer agent. Work in this branch/workspace only.
+Goal: Implement PR8 for M3: TopologyMap click-to-filter + signal color thresholds + JetBrains Mono font loading.
+
+Read first: docs/AGENTS/ui.md, docs/AGENTS/conventions.md, docs/ARCHITECTURE.md, docs/DECISIONS.md, docs/AGENTS/m3-research.md (§7), docs/AGENTS/m3-plan.md (PR8 section).
+Constraints: See PR8 scope fence in m3-plan.md. Key forbidden: migrations/**, internal/graphql/**, internal/ws/**, internal/engine/a/transport/**, AGENTS.md.
+Max diff: 450 LOC. If scope grows, stop and propose a split.
+
+Process:
+1) Restate plan in 5–10 bullets.
+2) Write failing tests FIRST. Confirm they fail.
+3) Implement minimal code to pass tests.
+4) Run: make ci (max 2 retry cycles).
+5) Open PR with Evidence Block.
+
+Stop: If make ci fails twice, write RUN_LOG.md + NEXT_STEPS.md and stop.
+```

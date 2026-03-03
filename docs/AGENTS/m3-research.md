@@ -616,3 +616,200 @@ PR2 (run DB + models) ─┤         ╱
 8. **Full panel set in M3** — MetricsPanel, ActionBar, WinOverlay, TopologyMap, LogsPanel, TimerBar.
 9. **8 PRs, ~3,000–4,000 LOC total.** Critical path: PR1→PR2→PR3→PR6→PR7a→PR7b.
    PR4 and PR5 can parallelize with PR3.
+
+---
+
+## 7. PR8 Research: TopologyMap Click-to-Filter + Design System Polish
+
+> Generated 2026-03-03. Research only — no implementation plan.
+
+PR8 has two sub-goals:
+- **(A)** Clickable topology nodes that filter MetricsPanel + LogsPanel to signals relevant to the selected node
+- **(B)** JetBrains Mono font loading, signal color thresholds on metric values
+
+### 7.1 Current State (Post-PR7b)
+
+#### signals.yaml Schema — Flat, No Cross-references
+
+`rooms/cache-stampede/engineA/signals.yaml`:
+```yaml
+metrics:
+  - request_latency
+  - db_connections
+  - cache_hit_rate
+  - error_rate
+logPatterns:
+  - "cache miss burst"
+  - "db pool exhausted"
+traceSpans:
+  - "GET /api/items"
+  - "cache.lookup"
+  - "db.query"
+```
+
+Go structs — both `roomctl/schema.go:29-33` and `bundle_loader.go:37-41`:
+```go
+type BundleSignals struct {
+    Metrics     []string `yaml:"metrics"`
+    LogPatterns []string `yaml:"logPatterns"`
+    TraceSpans  []string `yaml:"traceSpans"`
+}
+```
+
+No node associations, no thresholds, no structure beyond flat string lists.
+
+#### Topology — In scenario.yaml, Untyped
+
+`rooms/cache-stampede/engineA/scenario.yaml:1-6`:
+```yaml
+topology:
+  - name: app-server
+    type: service
+  - name: cache
+    type: redis
+  - name: database
+    type: postgres
+```
+
+Go struct is `[]map[string]any` (`bundle_loader.go:23`, `roomctl/schema.go:15`) — completely untyped.
+
+#### Engine A Component Tree (Post-PR7b)
+
+```
+EngineAPage.tsx:11-46            (route, composes everything)
+├── TimerBar.tsx:8-35            (progress bar, signal-color thresholds on timer %)
+├── TopologyMap.tsx:8-24         (horizontal badge list with → arrows, NO click, NO connections)
+├── MetricsPanel.tsx:12-28       (plain key/value table, NO signal colors on values)
+├── LogsPanel.tsx:8-47           (auto-scrolling log list with tick prefix)
+├── ActionBar.tsx:9-31           (action buttons, applied state)
+├── WinOverlay.tsx:7-17          (full-screen overlay on win)
+└── ReconnectingToast.tsx:8-18   (fixed toast for reconnecting/disconnected)
+```
+
+All use `React.memo`. Layout: TimerBar → TopologyMap → (MetricsPanel | LogsPanel) 2-col grid → ActionBar → overlays.
+
+#### Tailwind Theme Tokens — All Match ui.md
+
+`web/src/styles/globals.css` uses Tailwind v4 `@theme` directives:
+
+| Token | Value | Matches ui.md? |
+|-------|-------|---------------|
+| `--color-panel-bg` | `#1e1e3f` | Yes |
+| `--color-panel-border` | `#2a2a5a` | Yes |
+| `--color-panel-hover` | `#2e2e6a` | Yes |
+| `--color-signal-ok` | `#73bf69` | Yes |
+| `--color-signal-warn` | `#ff9830` | Yes |
+| `--color-signal-crit` | `#f2495c` | Yes |
+| `--color-surface-dark` | `#0d0d1a` | Yes |
+| `--color-surface-mid` | `#1a1a2e` | Yes |
+| `--color-surface-light` | `#2a2a4a` | Yes |
+| `--font-mono` | `"JetBrains Mono", "Fira Code", monospace` | Yes |
+
+No `tailwind.config.ts` exists — correct for Tailwind v4 CSS-first approach.
+
+#### Font Loading — JetBrains Mono NOT Loaded
+
+The `--font-mono` CSS variable references `"JetBrains Mono"` but:
+- No `@font-face` declarations in `globals.css`
+- No font files in `web/public/` (empty)
+- No Google Fonts `<link>` in `index.html`
+- No fontsource import
+
+Browser falls through to `"Fira Code"` → system `monospace`.
+
+#### Go Snapshot Struct — Missing Topology/Signals
+
+`internal/engine/a/service/types.go:54-59`:
+```go
+type Snapshot struct {
+    Tick    int                `json:"tick"`
+    Won     bool               `json:"won"`
+    Metrics map[string]float64 `json:"metrics"`
+    Actions []string           `json:"actions,omitempty"`
+}
+```
+
+No `topology`, `logs`, `totalTicks`, or `signals`. The frontend `SnapshotPayload` (`protocol.ts:41-50`) expects these fields optionally, but the backend never sends them.
+
+#### Runtime Data Path Gap
+
+`cmd/engine-a/runtime.go`:
+
+- `Connect()` (line 71): `payload, _ := json.Marshal(s.engine.Snapshot())` — serializes only `{tick, won, metrics, actions}`
+- `runState` struct (line 36): stores engine, lastSeq, tick timing — NOT topology or signals
+- `state()` (line 220): loads bundle via `LoadEngineABundleFromTar(raw)` — `bundle.Scenario.Topology` and `bundle.Signals` are available but **discarded** after engine creation
+- `tickLoop()` (line 184) and `ApplyAction()` (line 104): also serialize only `Engine.Snapshot()` for deltas
+
+### 7.2 Key Constraints
+
+| Source | Constraint |
+|--------|-----------|
+| ADR-005 | Room content immutable per version. Topology is static room metadata. |
+| ARCHITECTURE.md §3.5 | Engine A determinism: `(seed + action_log)` → identical outcome. Topology unaffected by actions. |
+| ARCHITECTURE.md §7 | "Map click filters signals" — non-negotiable for Engine A. |
+| ADR-012 | Tailwind v4 CSS-first. Use `@theme` in globals.css, not tailwind.config.ts. |
+| PROJECT_STRUCTURE.md | `signals.yaml` intended to define "Panel definitions (metrics, logs, topology nodes)". |
+| AGENTS/ui.md | TopologyMap listed as key component. Click-to-filter is the architectural intent. |
+| AGENTS/ui.md | "Don't test Tailwind class names" — test behavior, not styling. |
+
+### 7.3 Footguns, Edge Cases, Integration Points
+
+#### 7.3a. Topology Node ↔ Signal Cross-referencing
+
+Current signals.yaml has **no concept of "which metric belongs to which node."** For click-to-filter, metrics/logPatterns need a `node` field. The Go `BundleSignals` struct and `roomctl validate` need updates.
+
+#### 7.3b. Topology Data: WS Snapshot vs Static Load
+
+Two delivery options:
+1. **Via WS initial snapshot** (current frontend expectation): Runtime includes topology + signals in the connect snapshot payload. Simple, frontend already expects it.
+2. **Separate GraphQL endpoint**: Cleaner separation but requires extra fetch + hook rework.
+
+Frontend `use-engine-a.ts:60` already reads `payload.topology`. Option 1 avoids rework.
+
+#### 7.3c. Font Loading
+
+| Approach | Pros | Cons |
+|----------|------|------|
+| **Fontsource npm** (`@fontsource/jetbrains-mono`) | Self-hosted via bundler, no CDN dep | Extra npm package |
+| **Self-hosted woff2** in `web/public/fonts/` | Full control | Manual file management |
+| **Google Fonts CDN** | Zero config | External dep, GDPR |
+
+Fontsource aligns with "no external CDN" philosophy (ADR-011).
+
+#### 7.3d. Signal Color Threshold Semantics
+
+Only TimerBar currently uses signal colors (`TimerBar.tsx:18`). MetricsPanel renders all values in `text-gray-100`.
+
+For per-metric thresholds, direction is inferred from comparing `ok` and `warn`:
+- `ok < warn` → lower is better (latency, connections, error_rate): `<=ok` green, `ok..warn` amber, `>warn` red
+- `ok > warn` → higher is better (hit_rate): `>=ok` green, `warn..ok` amber, `<warn` red
+
+No explicit `direction` field needed.
+
+#### 7.3e. roomctl validate Impact
+
+`roomctl/schema.go` + `validate.go` parse signals.yaml. Schema changes require:
+- Updated Go structs in `roomctl/schema.go` and `bundle_loader.go`
+- Updated test fixtures in `validate_test.go` and `bundle_loader_test.go`
+
+#### 7.3f. Go Runtime Enrichment Strategy
+
+The Go `Engine.Snapshot()` method should NOT change (stays dynamic-only). Instead:
+- `runState` stores `topology` and `signals` from the bundle at init
+- `Connect()` builds an enriched payload merging `Engine.Snapshot()` + static topology + signals
+- `tickLoop()` and `ApplyAction()` continue serializing plain `Engine.Snapshot()` (no topology/signals in deltas)
+
+#### 7.3g. Log Filtering by Node
+
+Logs in the WS stream are `{tick, message}` — no explicit node field. Filtering requires matching log messages against `logPatterns` associated with the selected node via the `signals.logPatterns[].node` field.
+
+### 7.4 Open Questions (Answered)
+
+| Question | Answer |
+|----------|--------|
+| Interactive SVG vs clickable badges for M3? | **(b) Clickable badges** — defer SVG to M8 |
+| Signal color threshold strategy? | **(a) Per-metric thresholds** in signals.yaml (ok/warn, crit implicit) |
+| Topology node ↔ signal cross-referencing? | **(a) Add `node` field** to each metric/logPattern in signals.yaml |
+| Font loading approach? | **(a) Fontsource** npm package (@fontsource/jetbrains-mono) |
+| Topology data delivery? | **(c) Initial WS snapshot only**, not in deltas |
+| Test room? | **cache-stampede** (3 nodes, 4 metrics sufficient) |
