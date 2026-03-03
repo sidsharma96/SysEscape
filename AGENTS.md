@@ -19,6 +19,7 @@
 | `make ui-test`          | Vitest tests                                                       |
 | `make ui-build`         | Vite production build                                              |
 | `make ui-codegen`       | Generate TS types from GraphQL schema                              |
+| `make smoke-m3`         | E2E smoke for Engine A WS (requires local stack)                   |
 
 ## Stop Conditions
 

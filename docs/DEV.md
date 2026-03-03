@@ -183,6 +183,17 @@ make migrate-down
 - Test both up and down migrations locally before committing.
 - For large tables: prefer additive changes first (new columns), then backfill, then switch reads.
 
+## Smoke Tests
+
+```bash
+# M2: roomctl publish flow (requires infra + BFF)
+make smoke-m2
+
+# M3: Engine A WebSocket flow (requires infra + all services)
+# Start the stack first: make dev-up && make migrate-up && make run-all
+make smoke-m3
+```
+
 ## Troubleshooting
 
 ### `make dev-up` fails with port conflicts

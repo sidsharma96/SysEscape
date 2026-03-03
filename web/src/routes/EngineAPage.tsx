@@ -3,6 +3,10 @@ import { useEngineA } from "@/hooks/use-engine-a";
 import { MetricsPanel } from "@/components/engine-a/MetricsPanel";
 import { ActionBar } from "@/components/engine-a/ActionBar";
 import { WinOverlay } from "@/components/engine-a/WinOverlay";
+import { TopologyMap } from "@/components/engine-a/TopologyMap";
+import { LogsPanel } from "@/components/engine-a/LogsPanel";
+import { TimerBar } from "@/components/engine-a/TimerBar";
+import { ReconnectingToast } from "@/components/engine-a/ReconnectingToast";
 
 export function EngineAPage() {
   const { runId } = useParams<{ runId: string }>();
@@ -21,19 +25,22 @@ export function EngineAPage() {
 }
 
 function EngineAGameplay({ runId, runToken }: { runId: string; runToken: string }) {
-  const { tick, metrics, won, actions, appliedActions, dispatchAction } = useEngineA({ runId, runToken });
+  const { tick, metrics, won, actions, appliedActions, topology, logs, totalTicks, connectionState, dispatchAction } =
+    useEngineA({ runId, runToken });
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-baseline justify-between">
-        <h1 className="text-2xl font-semibold">Engine A</h1>
-        <span className="font-mono text-sm text-gray-400">Tick {tick}</span>
+    <div className="space-y-4">
+      <TimerBar tick={tick} totalTicks={totalTicks} />
+      <TopologyMap topology={topology} />
+      <div className="grid gap-4 lg:grid-cols-2">
+        <MetricsPanel metrics={metrics} />
+        <LogsPanel logs={logs} />
       </div>
-      <MetricsPanel metrics={metrics} />
       {actions.length > 0 && (
         <ActionBar actions={actions} appliedActions={appliedActions} onDispatch={dispatchAction} />
       )}
       <WinOverlay won={won} />
+      <ReconnectingToast connectionState={connectionState} />
     </div>
   );
 }

@@ -21,7 +21,7 @@ describe("useEngineA", () => {
     vi.clearAllMocks();
     mockUseWs.mockImplementation((opts: { onMessage: (msg: Record<string, unknown>) => void }) => {
       capturedOnMessage = opts.onMessage;
-      return { send: mockSend, reconnect: mockReconnect, setLastSeq: mockSetLastSeq };
+      return { send: mockSend, reconnect: mockReconnect, setLastSeq: mockSetLastSeq, connectionState: "connected" };
     });
   });
 

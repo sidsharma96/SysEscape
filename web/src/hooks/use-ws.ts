@@ -1,6 +1,8 @@
-import { useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import type { Envelope, HelloPayload } from "@/lib/ws/protocol";
 import { PROTOCOL_VERSION } from "@/lib/ws/protocol";
+
+export type ConnectionState = "connected" | "reconnecting" | "disconnected";
 
 const BACKOFF_MS = [500, 1000, 2000, 4000, 8000];
 
@@ -15,9 +17,11 @@ export interface UseWsResult {
   send: (envelope: Envelope) => void;
   reconnect: (forceSnapshot?: boolean) => void;
   setLastSeq: (seq: number) => void;
+  connectionState: ConnectionState;
 }
 
 export function useWs({ url, runId, runToken, onMessage }: UseWsOptions): UseWsResult {
+  const [connectionState, setConnectionState] = useState<ConnectionState>("disconnected");
   const wsRef = useRef<WebSocket | null>(null);
   const backoffIdx = useRef(0);
   const lastSeqRef = useRef(0);
@@ -83,12 +87,14 @@ export function useWs({ url, runId, runToken, onMessage }: UseWsOptions): UseWsR
         }
         if (msg.type === "hello_ack") {
           backoffIdx.current = 0;
+          setConnectionState("connected");
         }
         onMessageRef.current(msg);
       };
 
       ws.onclose = () => {
         if (intentionalClose.current) return;
+        setConnectionState("reconnecting");
         const delay = BACKOFF_MS[Math.min(backoffIdx.current, BACKOFF_MS.length - 1)];
         backoffIdx.current++;
         reconnectTimer.current = setTimeout(() => {
@@ -129,5 +135,5 @@ export function useWs({ url, runId, runToken, onMessage }: UseWsOptions): UseWsR
     };
   }, [connect, clearReconnectTimer]);
 
-  return { send, reconnect, setLastSeq };
+  return { send, reconnect, setLastSeq, connectionState };
 }
