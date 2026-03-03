@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Header } from "../Header";
@@ -64,6 +64,37 @@ describe("Header", () => {
 
     expect(screen.getByText("octocat")).toBeInTheDocument();
     expect(screen.getByText("Log out")).toBeInTheDocument();
+  });
+
+  it("toggles mobile menu on hamburger click", () => {
+    mockUseViewer.mockReturnValue({
+      viewer: null,
+      loading: false,
+      isAuthenticated: false,
+    });
+
+    render(
+      <MemoryRouter>
+        <Header />
+      </MemoryRouter>,
+    );
+
+    const toggle = screen.getByLabelText("Toggle menu");
+    expect(toggle).toBeInTheDocument();
+
+    // mobile menu not visible by default
+    expect(screen.queryByTestId("mobile-menu")).not.toBeInTheDocument();
+
+    // open the menu
+    fireEvent.click(toggle);
+    const menu = screen.getByTestId("mobile-menu");
+    expect(menu).toBeInTheDocument();
+    expect(menu).toHaveTextContent("Catalog");
+    expect(menu).toHaveTextContent("Runs");
+
+    // close the menu
+    fireEvent.click(toggle);
+    expect(screen.queryByTestId("mobile-menu")).not.toBeInTheDocument();
   });
 
   it("hides auth section while loading", () => {
