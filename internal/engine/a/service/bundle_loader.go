@@ -131,6 +131,8 @@ func LoadEngineABundleFromTar(bundleTar []byte) (*EngineABundle, error) {
 	}
 
 	spec := SimulationSpec{
+		TickIntervalMS: simulation.Simulation.TickIntervalMS,
+		DurationTicks:  simulation.Simulation.DurationTicks,
 		InitialMetrics: initialMetrics,
 		Events:         make([]TimedEvent, 0, len(simulation.Simulation.Events)),
 		ActionEffects:  make(map[string]ActionEffectSet, len(simulation.Simulation.ActionEffects)),
